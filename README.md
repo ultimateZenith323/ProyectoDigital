@@ -75,6 +75,23 @@ Otros dos cambios de alcance quedan documentados por comparación entre el avanc
 2. **Sincronización de entradas asíncronas.** Toda señal externa que entra a un dominio síncrono (columnas del teclado, `KEY_CLOSE`, `KEY_SET_TIME`) pasa por al menos un doble flip-flop antes de usarse en lógica de decisión, mitigando metaestabilidad.
 3. **Antirrebote en milisegundos, no en ciclos fijos.** `keypad_scanner.v` y `lock_controller.v` basan su antirrebote en un contador de ticks de 1 ms derivado de `CLK_FREQ_HZ`, de modo que el tiempo de rebote (ms) es independiente de la frecuencia de reloj usada.
 4. **Interfaces de tipo comando/confirmación.** `i2c_master`, `uart_tx` y `lcd_hd44780.v` exponen el mismo contrato: el módulo superior activa una entrada de un ciclo (`cmd_*`, `tx_start`, `wr_cmd`/`wr_data`) y espera un pulso `done` o una bandera `busy` antes de emitir la siguiente orden.
+
+#### 4.1.1. Problema en la implementación de RFID
+
+El desarrollo se organizó en múltiples módulos. Se implementaron registros de desplazamiento para la comunicación SPI (RDE y RDS), un divisor de frecuencia, y una jerarquía de FSMs que cubrían desde la inicialización del dispositivo hasta la detección y verificación de tarjetas. Entre los logros alcanzados se encuentran la comunicación SPI funcional con el MFRC522, la verificación exitosa del registro de versión del chip (0x92), y la ejecución correcta del autotest interno del dispositivo, cuyos 64 bytes de resultado coincidieron con la tabla de referencia oficial para la versión 2.0 del chip.
+
+Sin embargo, el sistema no llegó a leer tarjetas RFID de forma funcional. Las razones principales fueron las siguientes:
+
+En primer lugar, la complejidad del protocolo ISO 14443 resultó mayor a la anticipada. La comunicación con tarjetas requiere una secuencia precisa de comandos — incluyendo REQA, anticollision y SELECT — con manejo de CRC, control de interrupciones y tiempos específicos, lo que implicó un número elevado de estados y módulos interconectados que dificultaron la depuración. Y por si fuera poco, el protocolo actualizado no esta disponible de forma gratuita en internet y se requirio usar versiones anteriores qe pueden tener puntos no vigentes hoy en día.
+
+En segundo lugar, la ausencia de herramientas de depuración avanzadas limitó el diagnóstico. Sin osciloscopio ni analizador lógico, verificar el comportamiento de las señales SPI en tiempo real resultó difícil, dependiendo únicamente de LEDs, displays de 7 segmentos y simulaciones en GTKWave.
+
+En tercer lugar, algunos registros del MFRC522 presentaron comportamientos no documentados en el datasheet disponible — como flags de interrupción que no se limpiaban automáticamente — lo que generó falsos positivos en la detección de errores y requirió ajustes iterativos en la lógica de control.
+
+A pesar de no completar la lectura de tarjetas, el proyecto permitió desarrollar competencias sólidas en diseño digital jerárquico, protocolos de comunicación serie, depuración de hardware y síntesis sobre FPGA.
+
+La prueba del intento esta en el grupo de codigos encontrados en "**codigos_antiguos**". Así mismo, se presentan algunas de las maquinas bosquejadas para la construcción de los codigos.
+
 ### 4.2 Diagrama de bloques
  
 <p align="center">
