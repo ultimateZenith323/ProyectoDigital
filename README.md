@@ -271,7 +271,11 @@ Genera dos patrones sonoros distintos y mutuamente excluyentes a partir de `trig
 | `trigger_abrir` (concedido) | 1 tono continuo | 500 ms |
 | `trigger_cerrar` (denegado) | 3 tonos cortos con silencios (100/100/100/100/100 ms) | 500 ms |
 
-![Digrama_general](diagramas/controlador_buzzer.png)
+<p align="center">
+  <img src="diagramas/controlador_buzzer.png" alt="Diagrama del controlador del buzzer" width="480" />
+  <br>
+  <em>Diagrama del generador de tonos de confirmación y error.</em>
+</p>
 
 Ambos patrones duran exactamente 500 ms en total, pero con envolventes distintas (tono sostenido vs. tres pulsos cortos), distinguibles al oído sin generar frecuencias distintas.
 
@@ -300,7 +304,11 @@ function [7:0] bcd_lo_ascii(input [7:0] bcd); bcd_lo_ascii = {4'h3, bcd[3:0]}; e
 ```
 Truco estándar de conversión BCD→ASCII: cada nibble de un byte BCD (0–9) es también su dígito ASCII menos `0x30`, así que anteponer el nibble alto `0x3` mapea directamente a `'0'`–`'9'`.
  
-![Digrama_general](diagramas/access_log.png)
+<p align="center">
+  <img src="diagramas/access_log.png" alt="Diagrama del módulo de registro de accesos" width="480" />
+  <br>
+  <em>Diagrama del módulo que guarda y transmite la bitácora de eventos.</em>
+</p>
  
 **Arbitraje escritura/lectura simultánea (verificado caso por caso):** la escritura de un nuevo evento (`event_time_valid`) y el consumo de una entrada por el volcado (`dump_read_en`) pueden coincidir en el mismo ciclo. El `case ({event_time_valid, dump_read_en})` cubre las 4 combinaciones correctamente, incluso bajo buffer lleno:
  
