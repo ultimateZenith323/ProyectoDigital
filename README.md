@@ -43,7 +43,7 @@ La implementación de este sistema en hardware dedicado (FPGA) garantiza tiempos
 
 ## 4. Arquitectura implementada
 
-### 4.1 Visión general y evolución del diseño
+### 4.1 Visión general del diseño
  
 La arquitectura final es un diseño **modular y distribuido**: en vez de una única FSM central de 14 estados como la propuesta originalmente, el sistema entregado reparte el control en **seis FSMs independientes**, una por módulo, coordinadas mediante señales de pulso de un ciclo y protocolos de tipo *comando/listo* (`start`/`busy`/`done`).
  
@@ -73,7 +73,7 @@ Otros dos cambios de alcance quedan documentados por comparación entre el avanc
 2. **Sincronización de entradas asíncronas.** Toda señal externa que entra a un dominio síncrono (columnas del teclado, `KEY_CLOSE`, `KEY_SET_TIME`) pasa por al menos un doble flip-flop antes de usarse en lógica de decisión, mitigando metaestabilidad.
 3. **Antirrebote en milisegundos, no en ciclos fijos.** `keypad_scanner.v` y `lock_controller.v` basan su antirrebote en un contador de ticks de 1 ms derivado de `CLK_FREQ_HZ`, de modo que el tiempo de rebote (ms) es independiente de la frecuencia de reloj usada.
 4. **Interfaces de tipo comando/confirmación.** `i2c_master`, `uart_tx` y `lcd_hd44780.v` exponen el mismo contrato: el módulo superior activa una entrada de un ciclo (`cmd_*`, `tx_start`, `wr_cmd`/`wr_data`) y espera un pulso `done` o una bandera `busy` antes de emitir la siguiente orden.
-### 3.2 Diagrama de bloques
+### 4.2 Diagrama de bloques
  
 ```mermaid
 flowchart LR
@@ -115,7 +115,11 @@ flowchart LR
 
 Código del módulo:[security top](codigos/security_top.v)
  
-### 3.3 `i2c_master.v` — Maestro I2C genérico
+### 4.3 Módulos principales
+
+A continuación se describen los módulos que implementan la lógica de control, comunicación y registro de eventos del sistema.
+
+#### 4.3.1 `i2c_master.v` — Maestro I2C genérico
  
 Maestro I2C de propósito general controlado por comandos discretos (`cmd_start`, `cmd_stop`, `cmd_write`, `cmd_read`): el módulo superior pide una operación a la vez y espera `done` antes de la siguiente. Encadenar `cmd_start → cmd_write → cmd_start` sin `cmd_stop` intermedio genera automáticamente un **repeated START**, tal como lo exige el DS3231 para pasar de escribir el puntero de registro a leerlo.
  
@@ -143,7 +147,7 @@ S_START3: if (tick) begin scl<=1'b0; state<=S_CMD_DONE; end
  
 Código del módulo:[i2c master](codigos/i2c_master.v)
 
-### 3.4 `uart_tx.v` — Transmisor UART 8N1
+#### 4.3.2 `uart_tx.v` — Transmisor UART 8N1
  
 Transmisor asíncrono simple: 8 bits de datos, sin paridad, 1 bit de stop (8N1), parametrizado en `CLK_FREQ_HZ` y `BAUD_RATE` (9600 por defecto, el valor de fábrica del HC-05).
  
@@ -153,7 +157,7 @@ FSM de 4 estados: `S_IDLE` (línea en reposo alto, espera `tx_start`) → `S_STA
  
  Código del módulo: [uart](codigos/uart_tx.v)
  
-### 3.5 `keypad_scanner.v` — Escaneo de teclado matricial
+#### 4.3.3 `keypad_scanner.v` — Escaneo de teclado matricial
  
 Escaneo de una matriz 4×4 activa en bajo (filas manejadas por la FPGA, columnas con pull-up), con doble sincronización de columnas (`cols_ff0`, `cols_ff1`) y una base de tiempo de 1 ms derivada de `CLK_FREQ_HZ`.
  
@@ -181,7 +185,7 @@ stateDiagram-v2
 
 Código del módulo: [keypad scanner](codigos/keypad_scanner.v)
  
-### 3.6 `lcd_hd44780.v` — Controlador HD44780
+#### 4.3.4 `lcd_hd44780.v` — Controlador HD44780
  
 Controlador HD44780 en **modo 8 bits, solo escritura** (`LCD_RW` fijo en 0), basado en el patrón `SETUP → PULSE → HOLD` por cada byte transferido:
  
@@ -205,7 +209,7 @@ Tras completar la ROM, el módulo levanta `ready` y pasa a `S_IDLE`, donde atien
 
 Código del módulo: [lcd_hd44780](codigos/lcd.v)
  
-### 3.7 `ds3231_controller.v` — Orquestador del RTC
+#### 4.3.5 `ds3231_controller.v` — Orquestador del RTC
  
 Módulo Verilog `controlador_RTC`. Envuelve a `i2c_master.v` para (a) refrescar continuamente hora/fecha del DS3231 cada `POLL_PERIOD_MS`, (b) escribir una hora inicial una sola vez, y (c) capturar una **"foto" temporal** exacta del instante de un intento de acceso.
  
@@ -242,7 +246,7 @@ Al llegar a `ST_LATCH`, si `pending_event` estaba activo, la misma lectura que a
 
 Código del módulo: [controllador_RTC ](codigos/controlador_RTC.V)
  
-### 3.8 `keypad_lcd_controller.v` — Verificación de contraseña (no incluido)
+#### 4.3.6 `keypad_lcd_controller.v` — Verificación de contraseña (no incluido)
  
  
 Interfaz inferida (parámetros `CLK_FREQ`, `PASSWORD_LEN = 4`):
@@ -257,8 +261,11 @@ Interfaz inferida (parámetros `CLK_FREQ`, `PASSWORD_LEN = 4`):
 | `close_trigger` | salida | Pulso al presionar `#`, solicitando cerrar la cerradura |
  
 Es razonable inferir que internamente combina `keypad_scanner.v` (captura de dígitos) y `lcd_hd44780.v` (mensajes "ACCESO CONCEDIDO"/"ACCESO DENEGADO" y hora en reposo, heredando la idea de la Fig. 2 del avance) con una FSM propia de acumulación de 4 dígitos y comparación de contraseña. **No es posible confirmar, sin el código fuente, cómo se almacena o compara la contraseña** — este punto se retoma como recomendación de seguridad en [§6.3](#63-lecciones-aprendidas-y-trabajo-futuro).
- 
-### 3.9 `lock_controller.v` — Control de la cerradura
+
+
+
+ Código del módulo: [keypad_lcd_controller](codigos/keypad_lcd_controller.v)
+#### 4.3.7 `lock_controller.v` — Control de la cerradura
  
 Replica en Verilog la lógica de apertura/cierre, con la convención de polaridad documentada explícitamente en el código como **confirmada sobre hardware real**: `RELE = 0` → cerradura cerrada (relé desactivado) · `RELE = 1` → cerradura abierta (relé activado, pasan los 12 V). Esta convención es consistente con una cerradura *fail-secure* cableada al contacto **normalmente abierto (NO)** del relé con las resistencias de pull-up de la FPGA activas: sin energizar el relé, el contacto NO permanece abierto y la cerradura no recibe los 12 V (permanece cerrada por defecto, incluso ante un corte de energía en la lógica de control).
  
@@ -274,7 +281,9 @@ stateDiagram-v2
  
 Dos caminos independientes llevan de `S_OPEN` a `S_CLOSING`: el pulso `close_trigger` (tecla `#`, ya antirrebotado aguas arriba por `keypad_lcd_controller.v`) y el botón físico `KEY_CLOSE`, sincronizado y antirrebotado *dentro de este mismo módulo* mediante un contador de nivel sostenido (no un antirrebote de ambos flancos como en `keypad_scanner.v`: aquí solo se confirma la pulsación, no la liberación). El estado `S_CLOSING` impone una **pausa de seguridad de 1000 ms** antes de aceptar un nuevo `open_trigger`, evitando reaperturas inmediatas. `door_open` es una salida puramente combinacional (`state == S_OPEN || state == S_CLOSING`), útil para LEDs de estado sin añadir un ciclo de latencia.
  
-### 3.10 `controlador_buzzer.v` — Retroalimentación sonora (no incluido)
+ Código del módulo: [lock_controller](codigos/lock_controller.v)
+
+#### 4.3.8 `controlador_buzzer.v` — Retroalimentación sonora (no incluido)
  
 > [!WARNING]
 > El código fuente de este módulo **no fue incluido**. Lo descrito aquí se infiere de su instanciación (`u_buzzer`) en `security_top.v`.
@@ -289,7 +298,11 @@ Interfaz inferida:
  
 Nótese que, pese a los nombres de los puertos (`abrir`/`cerrar`), las señales que los alimentan no representan literalmente "abrir" y "cerrar" la cerradura, sino **concedido** y **denegado** respectivamente — es decir, `controlador_buzzer.v` casi con certeza genera dos patrones de tono distintos (éxito/error) más que acciones mecánicas. Sin el archivo fuente no puede confirmarse la forma exacta de cada patrón (duración, frecuencia, número de beeps).
  
-### 3.11 `access_log.v` — Bitácora circular
+
+ Código del módulo:[controlador_buzzer](codigos/controlador_buzer.v)
+
+
+#### 4.3.9 `access_log.v` — Bitácora circular
  
 Buffer circular de `DEPTH = 64` entradas de 56 bits cada una (hora/min/seg/día/mes/año en BCD de 8 bits + 2 bits de tipo de evento), con transmisión UART de líneas ASCII de formato fijo.
  
@@ -334,6 +347,8 @@ endcase
 Cuando `count == DEPTH` y ocurre `2'b11`, la escritura sobreescribe exactamente la entrada que se está leyendo ese mismo ciclo (`wr_ptr == rd_ptr` en condición de lleno); como la lectura usa asignación no bloqueante, `entry_reg` captura el valor **anterior** a la escritura — el dato viejo se transmite correctamente antes de perderse.
  
 `dump_remaining` se fija como una copia de `count` al aceptar `dump_trigger` (`D_IDLE → D_READ`); eventos que lleguen **durante** un volcado en curso no se incluyen en ese ciclo de transmisión, sino que quedan en el buffer para el siguiente disparo automático (cada `DUMP_PERIOD_S = 5 s`, definido en `security_top.v`).
+
+Código del módulo: [acces_log](codigos/acces_log.v)
  
 ### 3.12 `security_top.v` — Integración del sistema
  
@@ -342,9 +357,11 @@ Módulo top que instancia y conecta todos los anteriores. Puntos de integración
 - **Reset:** `rst_n = KEY_RESET` directo (activo en bajo).
 - **Detectores de flanco de bajada** (mismo patrón en dos lugares, comparando `key_sync[2:1] == 2'b10`): `set_time_pulse` desde `KEY_SET_TIME` y `key_close_pulse` desde `KEY_CLOSE`. Nótese que `KEY_CLOSE` se usa **dos veces con propósitos distintos**: como entrada de nivel a `lock_controller.v` (antirrebote de pulsación sostenida) y, en paralelo, como flanco detectado aquí en `security_top.v` únicamente para generar el evento de bitácora "CERRADO".
 - **Multiplexado de eventos hacia la bitácora** (bloque combinacional): tiene prioridad `close_event_pulse` (tecla `#` o botón físico) sobre `event_time_valid` (contraseña). Esto implica dos **rutas distintas de origen del timestamp**: los eventos CERRADO usan el valor "en vivo" continuo de `hour_bcd`/`min_bcd`/etc., mientras que OTORGADO/DENEGADO usan el snapshot `event_*_bcd` capturado específicamente por `ds3231_controller.v` — más preciso porque está anclado al instante exacto de la validación, no al ciclo de refresco genérico.
-- **Asimetría de latencia entre concedido y denegado:** `lock_error_trigger = kp_access_event && !kp_access_granted` usa la señal cruda del teclado, **sin esperar** el snapshot del RTC — el tono de error suena de inmediato. En cambio `lock_open_trigger = event_time_valid && event_granted` sí espera el snapshot (~1 ms, ver [§3.7](#37-ds3231_controllerv--orquestador-del-rtc)) antes de abrir la cerradura y sonar el tono de éxito. Es una diferencia imperceptible en uso normal, pero deliberada: el registro en bitácora de un acceso concedido siempre tiene timestamp exacto antes de mover el actuador físico.
+- **Asimetría de latencia entre concedido y denegado:** `lock_error_trigger = kp_access_event && !kp_access_granted` usa la señal cruda del teclado, **sin esperar** el snapshot del RTC — el tono de error suena de inmediato. En cambio `lock_open_trigger = event_time_valid && event_granted` sí espera el snapshot  (#37-ds3231_controllerv--orquestador-del-rtc) antes de abrir la cerradura y sonar el tono de éxito. Es una diferencia imperceptible en uso normal, pero deliberada: el registro en bitácora de un acceso concedido siempre tiene timestamp exacto antes de mover el actuador físico.
 - **LEDs de depuración:** `LED[5] = ~log_dumping`, `LED[4:1] = ~log_count[3:0]`, `LED[0] = ~door_open` — los tres invertidos, consistente con LEDs activos en bajo típicos de placas Cyclone IV. `LED_VERDE = door_open` y `LED_ROJO = (BUZZER && !door_open)`: el LED rojo se enciende solo cuando suena el buzzer **y** la puerta está cerrada, aislando visualmente el caso de error del caso de éxito (que también activa el buzzer, pero con `door_open = 1`).
 - **Consistencia de anchos verificada:** `access_log.v` calcula `CNT_W = $clog2(DEPTH+1) = $clog2(65) = 7` para `log_count`; `security_top.v` lo declara como `wire [6:0] log_count` — 7 bits, coincide exactamente.
+
+Código del módulo top: [módulo top](codigos/security_top.v)
 
 ---
 
