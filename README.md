@@ -414,7 +414,7 @@ Para la realización de este proyecto, se emplearon herramientas de Inteligencia
 * **Estructuración documental:** corrección de estilo y formato Markdown para este informe final en el repositorio de GitHub.
 * **Aclaración de protocolos:** consultas teóricas rápidas sobre la máquina de estados interna del chip NXP RC522 para la temporización del bus SPI.
 
-Además, se utilizó IA para la verificación y el comentario de los códigos diseñados en cada módulo.
+Además, se utilizó IA para la verificación y el comentario de los códigos diseñados en cada módulo, síntesis y organización del código en bloques dinámicos.
 
 ---
 
