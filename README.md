@@ -30,14 +30,14 @@ La implementación de este sistema en hardware dedicado (FPGA) garantiza tiempos
 
 **Objetivo general:**
 
- Implementar en lógica digital síncrona (sin núcleo de procesador, blando o duro) un sistema de control de acceso funcional que autentique usuarios, registre cada evento con fecha/hora exacta, accione una cerradura eléctrica real y transmita un histórico de accesos a un dispositivo externo por Bluetooth.
+ Implementar en lógica digital síncrona un sistema de control de acceso funcional que autentique usuarios, registre cada evento con fecha/hora exacta, accione una cerradura eléctrica real y transmita un histórico de accesos a un dispositivo externo por Bluetooth.
  
 **Objetivos específicos cubiertos por la implementación final:**
 - Escanear un teclado matricial 4×4 con antirrebote confiable en ambos flancos (presión y liberación).
 - Verificar una contraseña de 4 dígitos y discriminar acceso concedido/denegado.
 - Mantener hora y fecha exactas mediante un RTC DS3231 sobre I2C, con mecanismo de configuración inicial de un solo uso.
 - Mostrar en una pantalla LCD 16×2 la hora corriente y el resultado de cada intento de acceso.
-- Accionar una cerradura eléctrica de 12 V mediante relé (contacto NO), con pausa de seguridad tras el cierre.
+- Accionar una cerradura eléctrica de 12 V mediante relé, con pausa de seguridad tras el cierre.
 - Registrar cada evento (otorgado, denegado, cerrado) en una bitácora circular de 64 entradas y transmitirla periódicamente por Bluetooth (HC-05, 9600 baudios) a una app receptora.
 ---
 
@@ -64,6 +64,9 @@ Otros dos cambios de alcance quedan documentados por comparación entre el avanc
 - El requisito original de registrar **el ID de la tarjeta** en cada evento no tiene equivalente en la versión final: `access_log.v` guarda únicamente fecha/hora y tipo de evento, no una identidad, porque la contraseña compartida por teclado no distingue usuarios individuales.
 - El esquema previo de **tres eventos separados** (lectura de tarjeta, acceso otorgado, acceso denegado, con el candado abriendo solo si "lectura de tarjeta Y acceso otorgado" ocurrían juntos) se simplificó a **dos señales** (`kp_access_event` + `kp_access_granted`), consistente con que una contraseña se valida en un único paso, sin una fase de "presencia" independiente de la de "validación".
   
+  Código del modulo access_log: [access_log](codigos/acces_log.v)
+
+
 **Patrones de diseño consistentes en todo el código:**
  
 1. **Valor por defecto + sobre-escritura condicional.** Casi todas las señales de pulso (`done`, `tx_start_reg`, `dump_read_en`, `cmd_start`, `rtc_data_valid`, `event_time_valid`) se reinician a `0` al inicio de cada ciclo de reloj y solo se reafirman condicionalmente dentro del `case` de la FSM. Esto evita latches inferidos y garantiza pulsos de exactamente un ciclo. `lock_controller.v` usa la misma técnica para `RELE`: lo asigna en `1` al entrar a `S_OPEN` y luego lo sobre-escribe a `0` condicionalmente más abajo en el mismo bloque — la asignación no bloqueante que ejecuta último en orden de programa es la que prevalece.
@@ -108,7 +111,9 @@ flowchart LR
     style KLC stroke-dasharray: 5 5
     style BUZZC stroke-dasharray: 5 5
 ```
-`*` Módulo referenciado en `security_top.v` cuyo código fuente no fue incluido entre los archivos entregados — ver [§3.8](#38-keypad_lcd_controllerv--verificación-de-contraseña-no-incluido) y [§3.10](#310-controlador_buzzerv--retroalimentación-sonora-no-incluido).
+`*` Módulo referenciado en `security_top.v` 
+
+Código del módulo:[security top](codigos/security_top.v)
  
 ### 3.3 `i2c_master.v` — Maestro I2C genérico
  
@@ -136,6 +141,8 @@ S_START3: if (tick) begin scl<=1'b0; state<=S_CMD_DONE; end
  
 `SDA` es verdaderamente bidireccional (`inout`), controlada por `sda_oe`/`sda_out` y liberada a alta impedancia durante ACK/lectura para que el esclavo (o el propio maestro, al confirmar una lectura) la maneje. `SCL` se maneja en push-pull puro — válido porque, como indica el comentario del módulo, el DS3231 no hace *clock-stretching* en lectura normal.
  
+Código del módulo:[i2c master](codigos/i2c_master.v)
+
 ### 3.4 `uart_tx.v` — Transmisor UART 8N1
  
 Transmisor asíncrono simple: 8 bits de datos, sin paridad, 1 bit de stop (8N1), parametrizado en `CLK_FREQ_HZ` y `BAUD_RATE` (9600 por defecto, el valor de fábrica del HC-05).
@@ -143,6 +150,8 @@ Transmisor asíncrono simple: 8 bits de datos, sin paridad, 1 bit de stop (8N1),
 `BIT_PERIOD = CLK_FREQ_HZ / BAUD_RATE = 50 000 000 / 9600 = 5208` ciclos (división entera). Esto entrega un baudrate real de 50 000 000 / 5208 ≈ 9600.6 baudios — un error de ≈0.006 %, muy por debajo de la tolerancia típica de un UART (~2 %), por lo que no hace falta un generador de baudrate fraccionario.
  
 FSM de 4 estados: `S_IDLE` (línea en reposo alto, espera `tx_start`) → `S_START` (baja la línea un `BIT_PERIOD`) → `S_DATA` (desplaza `shift_reg[0]`, LSB primero, 8 veces) → `S_STOP` (sube la línea, libera `tx_busy`) → `S_IDLE`. El contrato de uso es explícito en el propio módulo: no debe pulsarse `tx_start` mientras `tx_busy = 1`. `access_log.v` es el único consumidor.
+ 
+ Código del módulo: [uart](codigos/uart_tx.v)
  
 ### 3.5 `keypad_scanner.v` — Escaneo de teclado matricial
  
@@ -169,9 +178,8 @@ stateDiagram-v2
 ```
  
 `SCAN` recorre las 4 filas una a la vez; al detectar una columna en bajo, congela la fila activa y pasa a `DEBOUNCE` sin seguir escaneando, hasta confirmar `key_valid` (un único pulso de un ciclo) y esperar la liberación, también antirrebotada. Esto garantiza **exactamente un `key_valid` por pulsación física**, sin importar cuánto tiempo se mantenga presionada la tecla.
- 
-> [!NOTE]
-> Detalle menor: `decode_key` usa `4'hF` tanto como valor por defecto (patrón de columnas no reconocido, p. ej. dos teclas de la misma fila presionadas a la vez) como código válido para `#`. En operación normal de un usuario ingresando una contraseña dígito a dígito esto no es alcanzable, pero conviene tenerlo presente si se detectan lecturas espurias de `#`.
+
+Código del módulo: [keypad scanner](codigos/keypad_scanner.v)
  
 ### 3.6 `lcd_hd44780.v` — Controlador HD44780
  
@@ -194,6 +202,8 @@ init_rom[3] = 8'h06; // Entry Mode Set: incrementa cursor, sin shift de pantalla
 ```
  
 Tras completar la ROM, el módulo levanta `ready` y pasa a `S_IDLE`, donde atiende `wr_cmd`/`wr_data` bajo demanda con `busy` como bandera de ocupado — el mismo contrato comando/confirmación de `i2c_master` y `uart_tx`.
+
+Código del módulo: [lcd_hd44780](codigos/lcd.v)
  
 ### 3.7 `ds3231_controller.v` — Orquestador del RTC
  
@@ -212,7 +222,7 @@ stateDiagram-v2
     LECTURA --> LATCH: 7 registros leidos (seg...anio)
     LATCH --> ESPERA: actualiza salidas + snapshot si pending_event
 ```
-*(Vista simplificada: la FSM real tiene 38 estados internos — uno por cada byte de dirección/puntero/dato — agrupados aquí en sus cuatro fases conceptuales.)*
+
  
 **El mecanismo de snapshot es el punto más fino del módulo.** En vez de disparar una transacción I2C urgente exactamente cuando ocurre `access_event` (más latencia y complejidad), el evento se marca (`pending_event`, `pending_granted`) y se resuelve en la **siguiente lectura periódica que complete** — de hecho, `access_event` fuerza esa lectura a arrancar de inmediato en lugar de esperar el próximo `poll_tick`:
  
@@ -229,11 +239,11 @@ Al llegar a `ST_LATCH`, si `pending_event` estaba activo, la misma lectura que a
 **Corrección de formato BCD verificada:** `hour_bcd <= {2'b00, r_hour[5:0]}` retiene los bits [5:0] del registro de horas — correcto para modo 24 h del DS3231 (bit 6 = selector 12/24h, descartado; bits [5:4] = decena 0–2; bits [3:0] = unidad). `month_bcd <= {3'b000, r_month[4:0]}` retiene bits [4:0], descartando el bit de siglo (bit 7) del registro de mes. Ambos coinciden con el datasheet del DS3231.
  
 **`rtc_comm_error`** no es una bandera *sticky* permanente: se recalcula en cada intento de transacción (`1` si el esclavo NACKeó la dirección o el puntero, `0` si la transacción fue exitosa), por lo que refleja el estado del **último** intento, no un historial acumulado.
+
+Código del módulo: [controllador_RTC ](codigos/controlador_RTC.V)
  
 ### 3.8 `keypad_lcd_controller.v` — Verificación de contraseña (no incluido)
  
-> [!WARNING]
-> El código fuente de este módulo **no fue incluido** entre los archivos entregados para este informe. Lo descrito aquí se infiere únicamente de su instanciación en `security_top.v` (`u_keypad_lcd`) y debe completarse con el archivo real antes de la sustentación.
  
 Interfaz inferida (parámetros `CLK_FREQ`, `PASSWORD_LEN = 4`):
  
