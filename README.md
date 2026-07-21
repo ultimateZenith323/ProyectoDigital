@@ -8,10 +8,9 @@
 4. [Arquitectura implementada](https://www.google.com/search?q=%234-arquitectura-implementada)
 5. [Funcionamiento y pruebas](https://www.google.com/search?q=%235-funcionamiento-y-pruebas)
 6. [Presentación física del proyecto](https://www.google.com/search?q=%236-presentaci%C3%B3n-f%C3%ADsica-del-proyecto)
-7. [Sustentación presencial](https://www.google.com/search?q=%237-sustentaci%C3%B3n-presencial)
-8. [Reporte de uso de IA](https://www.google.com/search?q=%238-reporte-de-uso-de-ia)
-9. [Conclusiones](https://www.google.com/search?q=%239-conclusiones)
-10. [Bibliografía](https://www.google.com/search?q=%2310-bibliograf%C3%ADa)
+7. [Reporte de uso de IA](https://www.google.com/search?q=%238-reporte-de-uso-de-ia)
+8. [Conclusiones](https://www.google.com/search?q=%239-conclusiones)
+9.  [Bibliografía](https://www.google.com/search?q=%2310-bibliograf%C3%ADa)
 
 ---
 
@@ -79,16 +78,6 @@ Las pruebas se dividieron en subsistemas antes de la integración total:
 ## 6. Presentación física del proyecto
 
 El prototipo final se encuentra ensamblado en un gabinete de MDF diseñado a medida[cite: 1]. El panel frontal dispone el lector RFID, la pantalla LCD, los LEDs indicadores (rojo y verde) y la puerta simulada con su cerradura de golpe[cite: 1]. En el compartimento trasero se aísla de manera segura el circuito de potencia de 12V y la tarjeta FPGA[cite: 1].
-
----
-
-## 7. Sustentación presencial
-
-**Atención:** La sustentación del proyecto es de carácter **presencial y obligatorio** para todos los miembros del equipo. Se deberá coordinar una cita previa con el evaluador. Durante la sustentación se exigirá:
-
-* Explicación de la arquitectura a nivel RTL (RTL Viewer).
-* Demostración en vivo del sistema respondiendo a tarjetas registradas y no registradas.
-* Evidencia de la descarga de la bitácora (Access Log) mediante puerto serial al PC.
 
 ---
 
