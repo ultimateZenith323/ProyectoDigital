@@ -16,7 +16,7 @@
 
 ## 1. Introducción
 
-El presente informe detalla el diseño e implementación de un sistema de control de acceso mediante tecnología RFID, desarrollado sobre la tarjeta de desarrollo FPGA Cyclone IV[cite: 1]. El núcleo del sistema integra un lector RFID RC522, un módulo de reloj en tiempo real (RTC) DS3231, una pantalla LCD 16x2 y una cerradura eléctrica de 12V[cite: 1]. La orquestación del hardware se realiza mediante una Máquina de Estados Finita (FSM) principal y submódulos de comunicación (SPI, I2C, UART y bus paralelo) descritos en Verilog[cite: 1]. Este diseño parte de una base funcional previa de control de acceso por teclado matricial[cite: 1].
+El presente informe detalla el diseño e implementación de un sistema de control de acceso mediante tecnología RFID, desarrollado sobre la tarjeta de desarrollo FPGA Cyclone IV. El núcleo del sistema integra un lector RFID RC522, un módulo de reloj en tiempo real (RTC) DS3231, una pantalla LCD 16x2 y una cerradura eléctrica de 12V. La organización del hardware se realiza mediante una Máquina de Estados Finita (FSM) principal y submódulos de comunicación (SPI, I2C, UART y bus paralelo) descritos en Verilog. Este diseño parte de una base funcional previa de control de acceso por teclado matricial.
 
 ---
 
@@ -28,19 +28,21 @@ La implementación de este sistema en hardware dedicado (FPGA) garantiza tiempos
 
 ## 3. Cumplimiento de los objetivos
 
-* **Lectura y Autenticación:** Se implementó la comunicación SPI (Modo 0) para extraer el UID de tarjetas y contrastarlo contra una memoria ROM interna en un solo ciclo de reloj[cite: 1].
+* **Lectura y Autenticación:** Se implementó la comunicación SPI para extraer el UID de tarjetas y contrastarlo contra una memoria ROM interna en un solo ciclo de reloj.
 * **Registro de Eventos:** Se logró integrar la captura de la hora/fecha exacta (BCD a ASCII) al momento de cada acceso, almacenándola en un buffer circular y transmitiéndola por puerto serial.
-* **Control Físico:** Se diseñó el circuito de potencia aislado galvánicamente mediante optoacoplador (PC817) y transistor (2N2222) para accionar la cerradura de 12V con señales lógicas de 3.3V[cite: 1].
+* **Control Físico:** Se diseñó el circuito de potencia aislado galvánicamente mediante optoacoplador (PC817) y transistor (2N2222) para accionar la cerradura de 12V con señales lógicas de 3.3V.
 
 ---
 
 ## 4. Arquitectura implementada
 
-El sistema se estructura en una FSM principal que coordina módulos de bajo nivel[cite: 1]. A continuación, se detallan los controladores lógicos finales incorporados:
+El sistema se estructura en una FSM principal que coordina módulos de bajo nivel. A continuación, se detallan los controladores lógicos finales incorporados:
 
 ### 4.1. Comunicación UART (`uart_tx.v`)
 
 Transmisor serial estándar configurado por defecto a 9600 baudios (frecuencia base de 50 MHz). Opera con una máquina de estados de 4 pasos (IDLE, START, DATA, STOP) para enviar tramas de 8 bits sin paridad (LSB primero). Provee una bandera `tx_busy` para evitar sobreescritura de datos durante la transmisión.
+
+Código del módulo: [uart_tx.v](codigos/uart_tx.v)
 
 ### 4.2. Registro de Accesos (`access_log.v`)
 
@@ -50,18 +52,73 @@ Módulo encargado de la bitácora del sistema.
 * **Lógica:** Ante un pulso `event_time_valid`, concatena la fecha, hora y el tipo de evento (DENEGADO `00`, OTORGADO `01`, CERRADO `10`).
 * **Volcado de datos:** Al activar `dump_trigger`, una FSM interna extrae los registros, convierte los valores BCD a ASCII, formatea cadenas de 28 caracteres (ej. *"HH:MM:SS DD/MM/YY OTORGADO\r\n"*) y las envía secuencialmente instanciando el módulo `uart_tx`.
 
+
+Código del módulo: [acces_log](codigos/acces_log.v)
+
 ### 4.3. Controlador RTC e I2C (`ds3231_controller.v` y `i2c_master.v`)
 
 * **Maestro I2C:** Módulo genérico operando a 100 kHz. Maneja las señales SCL (push-pull) y SDA (open-drain bidireccional). Soporta "repeated START" encadenando comandos START y WRITE sin STOP intermedio, vital para direccionar los registros del DS3231.
 * **Controlador DS3231:** Orquesta al maestro I2C mediante una FSM. Realiza un sondeo ("polling") cada 200 ms para actualizar los registros de fecha y hora. Tiene una doble función crítica:
 1. Mantiene una salida continua en formato ASCII para el refresco del LCD.
-2. Captura un "snapshot" (foto) de la hora exacta ante un pulso `access_event` proveniente del RFID, levantando la bandera `event_time_valid` para que el `access_log` la guarde. También permite ajustar la hora del RTC en hardware mediante un trigger.
+2. Captura una foto de la hora exacta ante un pulso `access_event` proveniente del RFID, levantando la bandera `event_time_valid` para que el `access_log` la guarde. También permite ajustar la hora del RTC en hardware mediante un trigger.
 
 
+Código del módulo ds3231_controller: [DS3231_controlador](codigos/controlador_RTC.V)
+
+Código del módulo i2c_master: [12c_master](codigos/i2c_master.v)
 
 ### 4.4. FSM Principal y Autenticación
 
-El sistema entra en estado LECTURA al detectar una tarjeta mediante el controlador SPI[cite: 1]. Si el UID coincide en la ROM (estado VALIDACIÓN), pasa a CONCEDIDO, activando el LED verde y un contador que energiza la cerradura por 3 segundos[cite: 1]. Si falla, pasa a DENEGADO encendiendo el LED rojo[cite: 1].
+El sistema entra en estado LECTURA al detectar una tarjeta mediante el controlador SPI. Si el UID coincide en la ROM (estado VALIDACIÓN), pasa a CONCEDIDO, activando el LED verde y un contador que energiza la cerradura por 3 segundos. Si falla, pasa a DENEGADO encendiendo el LED rojo.
+
+
+### 4.5. Módulo de Integración Principal (`security_top`)
+
+Este es el módulo de mayor jerarquía (Top-Level) del diseño. Su propósito es instanciar e interconectar todos los submódulos funcionales del sistema, mapeando las señales lógicas internas con los pines físicos de la FPGA (entradas de botones, teclado, señales I2C, pines de la LCD, transmisión UART y salidas al relé/buzzer).
+
+* **Multiplexación de Eventos:** Emplea lógica combinacional para determinar qué evento (Acceso Otorgado, Acceso Denegado o Puerta Cerrada) y con qué marca de tiempo se envía al módulo de bitácora (`access_log`).
+* **Transmisión Automática:** Integra un contador basado en el reloj del sistema que genera un pulso de disparo (trigger) cada 5 segundos para forzar el volcado periódico de la memoria FIFO a través de Bluetooth.
+* **Sincronización de Entradas:** Aplica registros de desplazamiento (shift registers) a los botones físicos (Reset, Ajuste de Hora y Cierre Manual) para sincronizarlos con el dominio del reloj principal y evitar problemas de metaestabilidad.
+
+
+
+### 4.6. Controlador de Interfaz de Usuario (`keypad_lcd_controller`)
+
+Este bloque actúa como el cerebro de la interacción con el usuario. Coordina la información que ingresa desde el teclado y la que se visualiza en la pantalla, gestionando de forma aislada la validación de la contraseña del sistema.
+
+* **Máquina de Estados de Pantalla:** Controla la inicialización de la LCD y el posicionamiento del cursor, dibujando en la línea superior la hora en vivo (proveniente del RTC) y en la línea inferior los intentos de contraseña.
+* **Gestión de Privacidad:** Enmascara los dígitos ingresados reemplazándolos con caracteres `*` para proteger el PIN.
+* **Validación de Credenciales:** Compara el arreglo de teclas ingresadas con la clave maestra configurada en hardware y despacha señales de un solo ciclo de reloj (`access_event`, `access_granted`) para disparar las capturas de tiempo y la apertura física.
+
+
+### 4.7. Escáner de Teclado Matricial (`keypad_scanner`)
+
+Este submódulo de bajo nivel se encarga del barrido continuo de un teclado matricial 4x4 físico, traduciendo coordenadas eléctricas en datos lógicos interpretables por el sistema.
+
+* **Doble Sincronización:** Emplea dos flip-flops en serie para las señales de las columnas, asegurando una lectura estable y libre de metaestabilidad.
+* **Filtro Antirrebote (Debounce):** Implementa un temporizador interno que exige que una tecla se mantenga mecánicamente estable durante al menos 20 ms antes de validar la pulsación.
+* **Decodificación Hexadecimal:** Convierte la intersección de la fila activa (en bajo) y la columna detectada en un código de 4 bits (0-9, A-F) que representa la tecla exacta pulsada.
+
+
+
+### 4.8. Controlador de Cerradura (`lock_controller`)
+
+Este módulo es el responsable de la actuación de potencia del sistema, traduciendo las directrices lógicas en el control de un relé electromecánico de 12V.
+
+* **Lógica de Potencia:** Activa o desactiva la señal del relé respetando la polaridad requerida por el hardware físico (nivel alto para abrir, nivel bajo para cerrar).
+* **Pausa de Seguridad (Hold):** Incorpora un estado de transición (`S_CLOSING`) que aplica un retardo forzado de 1000 ms tras el cierre, previniendo aperturas erráticas o rebotes eléctricos en la bobina de la cerradura.
+* **Filtro Independiente:** Gestiona un contador de antirrebote dedicado de 50 ms para el botón físico de cierre interno, independiente del teclado principal.
+
+
+
+### 4.9. Controlador de Alertas Sonoras (`controlador_buzzer`)
+
+Este componente proporciona retroalimentación auditiva crítica, mejorando la experiencia del usuario al confirmar el resultado de las interacciones con el sistema de acceso.
+
+* **Base de Tiempos Precisa:** Deriva sus temporizaciones directamente de la frecuencia del reloj principal de 50 MHz para garantizar duraciones exactas de los tonos.
+* **Tono de Aceptación:** Responde a la señal de apertura con un pitido continuo y largo de 500 ms, indicando acceso exitoso.
+* **Secuencia de Rechazo/Cierre:** Responde a intentos fallidos o solicitudes de bloqueo con un patrón repetitivo de tres pitidos cortos de 100 ms, separados por silencios de igual duración.
+
 
 ---
 
@@ -77,7 +134,7 @@ Las pruebas se dividieron en subsistemas antes de la integración total:
 
 ## 6. Presentación física del proyecto
 
-El prototipo final se encuentra ensamblado en un gabinete de MDF diseñado a medida[cite: 1]. El panel frontal dispone el lector RFID, la pantalla LCD, los LEDs indicadores (rojo y verde) y la puerta simulada con su cerradura de golpe[cite: 1]. En el compartimento trasero se aísla de manera segura el circuito de potencia de 12V y la tarjeta FPGA[cite: 1].
+El prototipo final se encuentra ensamblado en un locker de MDF diseñado a medida. El panel frontal dispone el lector RFID, la pantalla LCD, los LEDs indicadores (rojo y verde), la puerta simulada con su cerradura de golpe, el circuito de potencia de 12V y la tarjeta FPGA. En la parte posterior hay un espacio para guardar el contenido del locker.
 
 ---
 
@@ -89,7 +146,7 @@ Para la realización de este proyecto, se emplearon herramientas de Inteligencia
 * **Estructuración documental:** Corrección de estilo y formato Markdown para este informe final en el repositorio de GitHub.
 * **Aclaración de protocolos:** Consultas teóricas rápidas sobre la máquina de estados interna del chip NXP RC522 para la temporización del bus SPI.
 
-*(Nota: Toda la lógica central, FSMs y controladores fueron diseñados y depurados manualmente por los miembros del equipo).*
+* Se usa IA además para hacer verificación y comentariado de los códigos diseñados en cada módulo.
 
 ---
 
