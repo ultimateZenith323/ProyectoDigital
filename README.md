@@ -44,9 +44,8 @@ La implementación de este sistema en hardware dedicado (FPGA) garantiza tiempos
 ## 4. Arquitectura implementada
 
 ### 4.1 Visión general del diseño
- 
-La arquitectura final es un diseño **modular y distribuido**: en vez de una única FSM central de 14 estados como la propuesta originalmente, el sistema entregado reparte el control en **seis FSMs independientes**, una por módulo, coordinadas mediante señales de pulso de un ciclo y protocolos de tipo *comando/listo* (`start`/`busy`/`done`).
- 
+ La arquitectura final es un diseño **modular y distribuido**: en vez de una única FSM central de 14 estados como la propuesta originalmente, el sistema entregado reparte el control en **nueve FSMs independientes**, una por módulo, coordinadas mediante señales de pulso de un ciclo y protocolos de tipo *comando/listo* (`start`/`busy`/`done`).
+
 | FSM | Módulo | Responsabilidad |
 |---|---|---|
 | Maestro I2C | `i2c_master.v` | Generar START/STOP/bytes en el bus I2C bajo demanda |
@@ -54,9 +53,12 @@ La arquitectura final es un diseño **modular y distribuido**: en vez de una ún
 | Orquestador RTC | `ds3231_controller.v` | Sondeo periódico + snapshot de evento + ajuste de hora |
 | Antirrebote de teclado | `keypad_scanner.v` | Escaneo de matriz 4×4 y filtrado de rebotes |
 | Controlador LCD | `lcd_hd44780.v` | Inicialización y escritura de caracteres en el HD44780 |
+| Contraseña + pantalla | `keypad_lcd_controller.v` | Captura de PIN, comparación, redibujo de LCD |
 | Cerradura | `lock_controller.v` | Apertura/cierre del relé con pausa de seguridad |
-| Validación de bitácora | `access_log.v` | Buffer circular + transmisión de líneas de 28 caracteres |
- 
+| Retroalimentación sonora | `controlador_buzzer.v` | Secuencias de tono para concedido/denegado |
+| Volcado de bitácora | `access_log.v` | Buffer circular + transmisión de líneas de 28 caracteres |
+
+
 Esta descomposición es, en general, más robusta que una FSM monolítica: cada módulo es sintetizable, simulable y depurable de forma independiente, y el acoplamiento entre ellos se reduce a un puñado de señales por interfaz.
  
 Otros dos cambios de alcance quedan documentados por comparación entre el avance y el código final:
@@ -111,9 +113,7 @@ flowchart LR
     style KLC stroke-dasharray: 5 5
     style BUZZC stroke-dasharray: 5 5
 ```
-`*` Módulo referenciado en `security_top.v` 
-
-Código del módulo:[security top](codigos/security_top.v)
+`*` Módulo referenciado en [security top](codigos/security_top.v)
  
 ### 4.3 Módulos principales
 
@@ -246,25 +246,55 @@ Al llegar a `ST_LATCH`, si `pending_event` estaba activo, la misma lectura que a
 
 Código del módulo: [controllador_RTC ](codigos/controlador_RTC.V)
  
-#### 4.3.6 `keypad_lcd_controller.v` — Verificación de contraseña (no incluido)
- 
- 
-Interfaz inferida (parámetros `CLK_FREQ`, `PASSWORD_LEN = 4`):
- 
-| Señal | Dirección | Descripción inferida |
+#### 4.3.6 `keypad_lcd_controller.v` — Verificación de contraseña 
+
+Fusiona el escaneo de teclado, el control de LCD y la comparación de contraseña en una sola FSM. Internamente instancia `keypad_scanner.v` (`DEBOUNCE_MS = 20`, igual al valor por defecto del módulo) y `lcd_hd44780.v` (módulo `lcd`) 
+
+**Pantalla de reposo (nadie está tecleando):**
+- Línea 1: `HH:MM` — hora en vivo, se redibuja cada vez que llega un pulso `rtc_data_valid`.
+- Línea 2: `PIN:` seguido de un `*` por cada dígito ya ingresado.
+
+**Mapeo de teclas especiales:**
+
+| Tecla | Código | Función |
 |---|---|---|
-| `kp_rows` / `kp_cols` | salida / entrada | Conexión directa a la matriz física — sugiere que instancia `keypad_scanner.v` internamente |
-| `lcd_rs`, `lcd_e`, `lcd_rw`, `lcd_d` | salida | Conexión directa al LCD — sugiere que instancia `lcd_hd44780.v` internamente |
-| `hour_bcd`, `min_bcd`, `rtc_data_valid` | entrada | Para mostrar la hora corriente en reposo |
-| `access_event` | salida | Pulso: se completó un intento de contraseña |
-| `access_granted` | salida | Válida junto con `access_event`: resultado del intento |
-| `close_trigger` | salida | Pulso al presionar `#`, solicitando cerrar la cerradura |
- 
-Es razonable inferir que internamente combina `keypad_scanner.v` (captura de dígitos) y `lcd_hd44780.v` (mensajes "ACCESO CONCEDIDO"/"ACCESO DENEGADO" y hora en reposo, heredando la idea de la Fig. 2 del avance) con una FSM propia de acumulación de 4 dígitos y comparación de contraseña. **No es posible confirmar, sin el código fuente, cómo se almacena o compara la contraseña** — este punto se retoma como recomendación de seguridad en [§6.3](#63-lecciones-aprendidas-y-trabajo-futuro).
+| `*` | `4'hE` | Validar la clave ingresada (equivale a "Enter") |
+| `#` | `4'hF` | Pedir el cierre de la cerradura (pulso `close_trigger`) |
+| `A` | `4'hA` | Borrar el intento actual y volver a `PIN:` |
+| 0–9, B–D | — | Se agregan al intento si `entry_count < PASSWORD_LEN`; si ya hay 4 dígitos, se ignoran hasta borrar con `A` |
 
 
+**Redibujo de pantalla (subrutina reutilizada).** Escribir las dos líneas del LCD cuesta 17 escrituras por línea (1 byte de posición de cursor + 16 caracteres), cada una vía el handshake genérico `S_ARM`/`S_WAIT_DONE` sobre `lcd_hd44780.v` (~2 ms por escritura). Un redibujo completo toma **≈68 ms**. Esta subrutina (`S_SET_L1 → S_SEND_MSG → S_SET_L2 → S_SEND_MSG`) se reutiliza desde cuatro puntos del código, cada uno fijando `after_redraw_state` antes de entrar: reposo tras arranque, cada dígito nuevo o borrado (`A`), el mensaje de resultado tras `*`, y el regreso al prompt tras el tiempo de espera..
+
+```mermaid
+stateDiagram-v2
+    [*] --> WAIT_READY
+    WAIT_READY --> REDIBUJAR: LCD listo (ready=1)
+
+    state REDIBUJAR {
+        [*] --> SET_L1
+        SET_L1 --> SEND_MSG_L1: 17 escrituras (linea 1)
+        SEND_MSG_L1 --> SET_L2
+        SET_L2 --> SEND_MSG_L2: 17 escrituras (linea 2)
+        SEND_MSG_L2 --> [*]
+    }
+
+    REDIBUJAR --> IDLE: after_redraw_state = IDLE
+    REDIBUJAR --> RESULT_HOLD: after_redraw_state = RESULT_HOLD (tras '*')
+
+    IDLE --> REDIBUJAR: pending_refresh, digito nuevo, o 'A'
+    IDLE --> CHECK_PW: tecla '*'
+    CHECK_PW --> REDIBUJAR: dispara access_event / access_granted
+
+    RESULT_HOLD --> REDIBUJAR: 3 s (HOLD_CYCLES) -> vuelve al prompt
+```
+
+**Validación de contraseña.** Al presionar `*`, `S_CHECK_PW` calcula `pw_match` combinacionalmente y, en el **mismo ciclo**, pulsa `access_event` y fija `access_granted = pw_match` — el evento llega a `ds3231_controller.v` (y de ahí a la cerradura y al buzzer) *antes* de que el LCD termine de dibujar "ACCESO OTORGADO"/"ACCESO DENEGADO" (~68 ms). El resultado permanece en pantalla `HOLD_CYCLES = CLK_FREQ_HZ × 3` ciclos (3 s exactos a 50 MHz) antes de limpiar `entry_count` y volver al prompt.
+
+**Límite de muestreo de teclas.** `key_valid` es un pulso de un solo ciclo y solo se atiende en `S_IDLE`. Mientras la FSM está dentro del redibujo (~68 ms), una tecla presionada justo entonces se pierde, ya que `keypad_scanner.v` no vuelve a pulsar `key_valid` hasta soltar y presionar de nuevo. Imperceptible en uso normal (68 ms << tiempo entre pulsaciones humanas), pero útil de tener presente si en pruebas aparecen dígitos "perdidos" al teclear muy rápido.
 
  Código del módulo: [keypad_lcd_controller](codigos/keypad_lcd_controller.v)
+
 #### 4.3.7 `lock_controller.v` — Control de la cerradura
  
 Replica en Verilog la lógica de apertura/cierre, con la convención de polaridad documentada explícitamente en el código como **confirmada sobre hardware real**: `RELE = 0` → cerradura cerrada (relé desactivado) · `RELE = 1` → cerradura abierta (relé activado, pasan los 12 V). Esta convención es consistente con una cerradura *fail-secure* cableada al contacto **normalmente abierto (NO)** del relé con las resistencias de pull-up de la FPGA activas: sin energizar el relé, el contacto NO permanece abierto y la cerradura no recibe los 12 V (permanece cerrada por defecto, incluso ante un corte de energía en la lógica de control).
@@ -283,21 +313,37 @@ Dos caminos independientes llevan de `S_OPEN` a `S_CLOSING`: el pulso `close_tri
  
  Código del módulo: [lock_controller](codigos/lock_controller.v)
 
-#### 4.3.8 `controlador_buzzer.v` — Retroalimentación sonora (no incluido)
- 
-> [!WARNING]
-> El código fuente de este módulo **no fue incluido**. Lo descrito aquí se infiere de su instanciación (`u_buzzer`) en `security_top.v`.
- 
-Interfaz inferida:
- 
-| Señal | Dirección | Origen / uso |
+#### 4.3.8 `controlador_buzzer.v` — Retroalimentación sonora 
+
+Genera dos patrones sonoros distintos y mutuamente excluyentes a partir de `trigger_abrir` (= `lock_open_trigger`, acceso concedido) y `trigger_cerrar` (= `lock_error_trigger`, acceso denegado), confirmando lo inferido en una versión anterior de este informe a partir de los nombres de los puertos.
+
+**Detección de flanco.** Un registro de un ciclo (`reg_abrir`, `reg_cerrar`) convierte cada entrada en un detector de flanco de subida (`start_open_buzz = trigger_abrir==1 && reg_abrir==0`), disparando el patrón una sola vez por pulso — defensivo, dado que ambas entradas ya son pulsos de un ciclo en `security_top.v`.
+
+**Patrones** (parámetro `CLK_FREQ_HZ`, misma convención de nombre que el resto del código — a diferencia de `keypad_lcd_controller.v`, que usa `CLK_FREQ`):
+
+| Evento | Patrón | Duración total |
 |---|---|---|
-| `trigger_abrir` | entrada | = `lock_open_trigger` (acceso **concedido**) |
-| `trigger_cerrar` | entrada | = `lock_error_trigger` (acceso **denegado**) |
-| `buzzer_out` | salida | Pin físico `BUZZER` |
- 
-Nótese que, pese a los nombres de los puertos (`abrir`/`cerrar`), las señales que los alimentan no representan literalmente "abrir" y "cerrar" la cerradura, sino **concedido** y **denegado** respectivamente — es decir, `controlador_buzzer.v` casi con certeza genera dos patrones de tono distintos (éxito/error) más que acciones mecánicas. Sin el archivo fuente no puede confirmarse la forma exacta de cada patrón (duración, frecuencia, número de beeps).
- 
+| `trigger_abrir` (concedido) | 1 tono continuo | 500 ms |
+| `trigger_cerrar` (denegado) | 3 tonos cortos con silencios (100/100/100/100/100 ms) | 500 ms |
+
+```mermaid
+stateDiagram-v2
+    [*] --> IDLE
+    IDLE --> LONGBEEP: flanco de trigger_abrir
+    LONGBEEP --> IDLE: 500 ms
+    IDLE --> BEEP1: flanco de trigger_cerrar
+    BEEP1 --> SIL1: 100 ms
+    SIL1 --> BEEP2: 100 ms
+    BEEP2 --> SIL2: 100 ms
+    SIL2 --> BEEP3: 100 ms
+    BEEP3 --> IDLE: 100 ms
+```
+
+Ambos patrones duran exactamente 500 ms en total, pero con envolventes distintas (tono sostenido vs. tres pulsos cortos), distinguibles al oído sin generar frecuencias distintas.
+
+**`buzzer_out` es una salida on/off simple** (`buzzer_reg`, sin PWM ni generación de frecuencia): el `BUZZER` físico debe ser un **buzzer activo** (oscilador propio integrado), no un zumbador pasivo que requeriría una señal moduladora en frecuencia. Vale la pena confirmarlo si el buzzer no suena o suena como un clic seco.
+
+**Sin cola de eventos.** La FSM solo evalúa nuevos disparos en `STATE_IDLE`; un segundo disparo que llegue mientras un patrón está sonando (dentro de esos 500 ms) se ignora. Un intento de acceso completo (4 dígitos + `*`) toma varios segundos, así que esto no es alcanzable en operación normal.
 
  Código del módulo:[controlador_buzzer](codigos/controlador_buzer.v)
 
