@@ -92,6 +92,28 @@ A pesar de no completar la lectura de tarjetas, el proyecto permitió desarrolla
 
 La prueba del intento esta en el grupo de codigos encontrados en "**codigos_antiguos**". Así mismo, se presentan algunas de las maquinas bosquejadas para la construcción de los codigos.
 
+Aquí algunas de las maquinas de estado realizadas:
+
+<p align="center">
+  <img src="diagramas/FSM_antiguos/FSMS(masterSPI).jpeg" alt="Maquina de control de SPI" width="520" />
+  <br>
+  <em>Maquina de control de SPI.</em>
+</p>
+
+<p align="center">
+  <img src="diagramas/FSM_antiguos/FSMTR.jpeg" alt="Maquina de envio de tarjetas" width="520" />
+  <br>
+  <em>Control de intercomunicación de tarjetas.</em>
+</p>
+
+<p align="center">
+  <img src="diagramas/FSM_antiguos/FSMP.jpeg" alt="Maquina principal" width="520" />
+  <br>
+  <em>Maquina principal.</em>
+</p>
+
+Aunque la laectura de tarjetas no fue exitosa, aun así se pudieron realizar procesos como el autotest y algunas configuraciones internas de la RFID.
+
 ### 4.2 Diagrama de bloques
  
 <p align="center">
