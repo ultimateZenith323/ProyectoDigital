@@ -77,7 +77,7 @@ Otros dos cambios de alcance quedan documentados por comparación entre el avanc
 4. **Interfaces de tipo comando/confirmación.** `i2c_master`, `uart_tx` y `lcd_hd44780.v` exponen el mismo contrato: el módulo superior activa una entrada de un ciclo (`cmd_*`, `tx_start`, `wr_cmd`/`wr_data`) y espera un pulso `done` o una bandera `busy` antes de emitir la siguiente orden.
 ### 4.2 Diagrama de bloques
  
-![Mi Imagen](./imagenes/mi_imagen.png)
+![Digrama_general](diagramas/Diagrama general.png)
 
 `*` Módulo referenciado en [security top](codigos/security_top.v)
  
