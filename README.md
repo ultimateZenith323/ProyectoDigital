@@ -95,7 +95,7 @@ La prueba del intento esta en el grupo de codigos encontrados en "**codigos_anti
 ### 4.2 Diagrama de bloques
  
 <p align="center">
-  <img src="diagramas/Diagrama%20general.png" alt="Diagrama general del sistema de control de acceso" width="520" />
+  <img src="diagramas/Diagrama%20general.png" alt="Diagrama general del sistema de control de acceso" width="440" />
   <br>
   <em>Diagrama general de la arquitectura del sistema FPGA.</em>
 </p>
@@ -156,7 +156,7 @@ Escaneo de una matriz 4×4 activa en bajo (filas manejadas por la FPGA, columnas
 **Parámetro:** `DEBOUNCE_MS = 20` (por defecto en el módulo; el valor efectivamente instanciado depende de `keypad_lcd_controller.v`, no incluido).
  
 <p align="center">
-  <img src="diagramas/keypad_scanner.png" alt="Diagrama del escaneo del teclado matricial" width="480" />
+  <img src="diagramas/keypad_scanner.png" alt="Diagrama del escaneo del teclado matricial" width="250" />
   <br>
   <em>Esquema del escaneo y antirrebote de la matriz de teclado.</em>
 </p>
@@ -188,7 +188,7 @@ init_rom[3] = 8'h06; // Entry Mode Set: incrementa cursor, sin shift de pantalla
 Tras completar la ROM, el módulo levanta `ready` y pasa a `S_IDLE`, donde atiende `wr_cmd`/`wr_data` bajo demanda con `busy` como bandera de ocupado — el mismo contrato comando/confirmación de `i2c_master` y `uart_tx`.
 
 <p align="center">
-  <img src="diagramas/lcd.png" alt="Diagrama del controlador del display LCD" width="480" />
+  <img src="diagramas/lcd.png" alt="Diagrama del controlador del display LCD" width="250" />
   <br>
   <em>Diagrama del controlador HD44780 para la pantalla LCD.</em>
 </p>
@@ -204,7 +204,7 @@ Módulo Verilog `controlador_RTC`. Envuelve a `i2c_master.v` para (a) refrescar 
 **Parámetros relevantes en la instancia de `security_top.v`:** `I2C_FREQ_HZ = 100 000` · `POLL_PERIOD_MS = 500` (el valor por defecto del módulo es 200 ms; el sistema final usa 500 ms).
  
 <p align="center">
-  <img src="diagramas/controlador_RTC.png" alt="Diagrama del controlador del reloj en tiempo real" width="480" />
+  <img src="diagramas/controlador_RTC.png" alt="Diagrama del controlador del reloj en tiempo real" width="200" />
   <br>
   <em>Flujo de lectura y registro de fecha y hora del RTC DS3231.</em>
 </p>
@@ -248,7 +248,7 @@ Fusiona el escaneo de teclado, el control de LCD y la comparación de contraseñ
 **Redibujo de pantalla (subrutina reutilizada).** Escribir las dos líneas del LCD cuesta 17 escrituras por línea (1 byte de posición de cursor + 16 caracteres), cada una a través del handshake genérico `S_ARM`/`S_WAIT_DONE` sobre `lcd_hd44780.v` (~2 ms por escritura). Un redibujo completo toma **≈68 ms**. Esta subrutina (`S_SET_L1 → S_SEND_MSG → S_SET_L2 → S_SEND_MSG`) se reutiliza desde cuatro puntos del código, cada uno fijando `after_redraw_state` antes de entrar: reposo tras arranque, cada dígito nuevo o borrado (`A`), el mensaje de resultado tras `*`, y el regreso al prompt tras el tiempo de espera.
 
 <p align="center">
-  <img src="diagramas/keypad_lcd_controller.png" alt="Diagrama del controlador de teclado y LCD" width="480" />
+  <img src="diagramas/keypad_lcd_controller.png" alt="Diagrama del controlador de teclado y LCD" width="400" />
   <br>
   <em>Diagrama de la máquina de estados para ingreso de PIN y validación.</em>
 </p>
@@ -264,7 +264,7 @@ Fusiona el escaneo de teclado, el control de LCD y la comparación de contraseñ
 Replica en Verilog la lógica de apertura/cierre, con la convención de polaridad documentada explícitamente en el código como **confirmada sobre hardware real**: `RELE = 0` → cerradura cerrada (relé desactivado) · `RELE = 1` → cerradura abierta (relé activado, pasan los 12 V). Esta convención es consistente con una cerradura *fail-secure* cableada al contacto **normalmente abierto (NO)** del relé con las resistencias de pull-up de la FPGA activas: sin energizar el relé, el contacto NO permanece abierto y la cerradura no recibe los 12 V (permanece cerrada por defecto, incluso ante un corte de energía en la lógica de control).
  
 <p align="center">
-  <img src="diagramas/lock_controller.png" alt="Diagrama del controlador de la cerradura" width="480" />
+  <img src="diagramas/lock_controller.png" alt="Diagrama del controlador de la cerradura" width="200" />
   <br>
   <em>Diagrama de la lógica de apertura, cierre y pausa de seguridad.</em>
 </p>
@@ -289,7 +289,7 @@ Genera dos patrones sonoros distintos y mutuamente excluyentes a partir de `trig
 | `trigger_cerrar` (denegado) | 3 tonos cortos con silencios (100/100/100/100/100 ms) | 500 ms |
 
 <p align="center">
-  <img src="diagramas/controlador_buzzer.png" alt="Diagrama del controlador del buzzer" width="480" />
+  <img src="diagramas/controlador_buzzer.png" alt="Diagrama del controlador del buzzer" width="200" />
   <br>
   <em>Diagrama del generador de tonos de confirmación y error.</em>
 </p>
@@ -322,7 +322,7 @@ function [7:0] bcd_lo_ascii(input [7:0] bcd); bcd_lo_ascii = {4'h3, bcd[3:0]}; e
 Truco estándar de conversión BCD→ASCII: cada nibble de un byte BCD (0–9) es también su dígito ASCII menos `0x30`, así que anteponer el nibble alto `0x3` mapea directamente a `'0'`–`'9'`.
  
 <p align="center">
-  <img src="diagramas/access_log.png" alt="Diagrama del módulo de registro de accesos" width="480" />
+  <img src="diagramas/access_log.png" alt="Diagrama del módulo de registro de accesos" width="200" />
   <br>
   <em>Diagrama del módulo que guarda y transmite la bitácora de eventos.</em>
 </p>
@@ -374,8 +374,8 @@ Las pruebas se dividieron en subsistemas antes de la integración total:
 El prototipo final se encuentra ensamblado en un locker de MDF diseñado a medida. El panel frontal dispone el lector RFID, la pantalla LCD, los LEDs indicadores (rojo y verde), la puerta simulada con su cerradura de golpe, el circuito de potencia de 12V y la tarjeta FPGA. En la parte posterior se dispone de un espacio para guardar el contenido del locker.
 
 <p align="center">
-  <img src="imagenes/caja.jpg" alt="Vista frontal del prototipo ensamblado" width="320" />
-  <img src="imagenes/caja2.jpg" alt="Vista posterior del prototipo ensamblado" width="320" />
+  <img src="imagenes/caja.jpg" alt="Vista frontal del prototipo ensamblado" width="260" />
+  <img src="imagenes/caja2.jpg" alt="Vista posterior del prototipo ensamblado" width="260" />
 </p>
 
 <p align="center">
