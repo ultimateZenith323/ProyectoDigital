@@ -136,16 +136,7 @@ Escaneo de una matriz 4×4 activa en bajo (filas manejadas por la FPGA, columnas
  
 **Parámetro:** `DEBOUNCE_MS = 20` (por defecto en el módulo; el valor efectivamente instanciado depende de `keypad_lcd_controller.v`, no incluido).
  
-```mermaid
-stateDiagram-v2
-    [*] --> SCAN
-    SCAN --> DEBOUNCE: alguna columna en bajo
-    DEBOUNCE --> SCAN: se libera antes de DEBOUNCE_MS (rebote)
-    DEBOUNCE --> VALID: estable DEBOUNCE_MS -> key_valid = 1
-    VALID --> WAIT_RELEASE: tecla liberada
-    WAIT_RELEASE --> WAIT_RELEASE: se represiona antes de tiempo
-    WAIT_RELEASE --> SCAN: liberacion estable DEBOUNCE_MS
-```
+![Digrama_general](diagramas/keypad_scanner.png)
  
 `SCAN` recorre las 4 filas una a la vez; al detectar una columna en bajo, congela la fila activa y pasa a `DEBOUNCE` sin seguir escaneando, hasta confirmar `key_valid` (un único pulso de un ciclo) y esperar la liberación, también antirrebotada. Esto garantiza **exactamente un `key_valid` por pulsación física**, sin importar cuánto tiempo se mantenga presionada la tecla.
 
@@ -173,6 +164,8 @@ init_rom[3] = 8'h06; // Entry Mode Set: incrementa cursor, sin shift de pantalla
  
 Tras completar la ROM, el módulo levanta `ready` y pasa a `S_IDLE`, donde atiende `wr_cmd`/`wr_data` bajo demanda con `busy` como bandera de ocupado — el mismo contrato comando/confirmación de `i2c_master` y `uart_tx`.
 
+![Digrama_general](diagramas/lcd.png)
+
 Código del módulo: [lcd_hd44780](codigos/lcd.v)
  
 #### 4.3.5 `ds3231_controller.v` — Orquestador del RTC
@@ -183,16 +176,7 @@ Módulo Verilog `controlador_RTC`. Envuelve a `i2c_master.v` para (a) refrescar 
  
 **Parámetros relevantes en la instancia de `security_top.v`:** `I2C_FREQ_HZ = 100 000` · `POLL_PERIOD_MS = 500` (el valor por defecto del módulo es 200 ms; el sistema final usa 500 ms).
  
-```mermaid
-stateDiagram-v2
-    [*] --> ESPERA
-    ESPERA --> AJUSTE_HORA: set_time_trigger (una sola vez)
-    ESPERA --> LECTURA: poll_tick (cada 500 ms) o access_event
-    AJUSTE_HORA --> ESPERA: 7 registros escritos (seg...anio)
-    LECTURA --> LATCH: 7 registros leidos (seg...anio)
-    LATCH --> ESPERA: actualiza salidas + snapshot si pending_event
-```
-
+![Digrama_general](diagramas/controlador_RTC.png)
  
 **El mecanismo de snapshot es el punto más fino del módulo.** En vez de disparar una transacción I2C urgente exactamente cuando ocurre `access_event` (más latencia y complejidad), el evento se marca (`pending_event`, `pending_granted`) y se resuelve en la **siguiente lectura periódica que complete** — de hecho, `access_event` fuerza esa lectura a arrancar de inmediato en lugar de esperar el próximo `poll_tick`:
  
@@ -232,28 +216,7 @@ Fusiona el escaneo de teclado, el control de LCD y la comparación de contraseñ
 
 **Redibujo de pantalla (subrutina reutilizada).** Escribir las dos líneas del LCD cuesta 17 escrituras por línea (1 byte de posición de cursor + 16 caracteres), cada una vía el handshake genérico `S_ARM`/`S_WAIT_DONE` sobre `lcd_hd44780.v` (~2 ms por escritura). Un redibujo completo toma **≈68 ms**. Esta subrutina (`S_SET_L1 → S_SEND_MSG → S_SET_L2 → S_SEND_MSG`) se reutiliza desde cuatro puntos del código, cada uno fijando `after_redraw_state` antes de entrar: reposo tras arranque, cada dígito nuevo o borrado (`A`), el mensaje de resultado tras `*`, y el regreso al prompt tras el tiempo de espera..
 
-```mermaid
-stateDiagram-v2
-    [*] --> WAIT_READY
-    WAIT_READY --> REDIBUJAR: LCD listo (ready=1)
-
-    state REDIBUJAR {
-        [*] --> SET_L1
-        SET_L1 --> SEND_MSG_L1: 17 escrituras (linea 1)
-        SEND_MSG_L1 --> SET_L2
-        SET_L2 --> SEND_MSG_L2: 17 escrituras (linea 2)
-        SEND_MSG_L2 --> [*]
-    }
-
-    REDIBUJAR --> IDLE: after_redraw_state = IDLE
-    REDIBUJAR --> RESULT_HOLD: after_redraw_state = RESULT_HOLD (tras '*')
-
-    IDLE --> REDIBUJAR: pending_refresh, digito nuevo, o 'A'
-    IDLE --> CHECK_PW: tecla '*'
-    CHECK_PW --> REDIBUJAR: dispara access_event / access_granted
-
-    RESULT_HOLD --> REDIBUJAR: 3 s (HOLD_CYCLES) -> vuelve al prompt
-```
+![Digrama_general](diagramas/keypad_lcd_controller.png)
 
 **Validación de contraseña.** Al presionar `*`, `S_CHECK_PW` calcula `pw_match` combinacionalmente y, en el **mismo ciclo**, pulsa `access_event` y fija `access_granted = pw_match` — el evento llega a `ds3231_controller.v` (y de ahí a la cerradura y al buzzer) *antes* de que el LCD termine de dibujar "ACCESO OTORGADO"/"ACCESO DENEGADO" (~68 ms). El resultado permanece en pantalla `HOLD_CYCLES = CLK_FREQ_HZ × 3` ciclos (3 s exactos a 50 MHz) antes de limpiar `entry_count` y volver al prompt.
 
@@ -265,13 +228,7 @@ stateDiagram-v2
  
 Replica en Verilog la lógica de apertura/cierre, con la convención de polaridad documentada explícitamente en el código como **confirmada sobre hardware real**: `RELE = 0` → cerradura cerrada (relé desactivado) · `RELE = 1` → cerradura abierta (relé activado, pasan los 12 V). Esta convención es consistente con una cerradura *fail-secure* cableada al contacto **normalmente abierto (NO)** del relé con las resistencias de pull-up de la FPGA activas: sin energizar el relé, el contacto NO permanece abierto y la cerradura no recibe los 12 V (permanece cerrada por defecto, incluso ante un corte de energía en la lógica de control).
  
-```mermaid
-stateDiagram-v2
-    [*] --> CERRADO
-    CERRADO --> ABIERTO: open_trigger (acceso concedido)
-    ABIERTO --> CERRANDO: close_trigger (tecla #) o KEY_CLOSE sostenido DEBOUNCE_MS
-    CERRANDO --> CERRADO: hold_cnt >= CLOSE_HOLD_MS (1000 ms)
-```
+![Digrama_general](diagramas/lock_controller.png)
  
 **Parámetros (instanciados en `security_top.v` con los mismos valores por defecto del módulo):** `DEBOUNCE_MS = 50` · `CLOSE_HOLD_MS = 1000`.
  
@@ -292,18 +249,7 @@ Genera dos patrones sonoros distintos y mutuamente excluyentes a partir de `trig
 | `trigger_abrir` (concedido) | 1 tono continuo | 500 ms |
 | `trigger_cerrar` (denegado) | 3 tonos cortos con silencios (100/100/100/100/100 ms) | 500 ms |
 
-```mermaid
-stateDiagram-v2
-    [*] --> IDLE
-    IDLE --> LONGBEEP: flanco de trigger_abrir
-    LONGBEEP --> IDLE: 500 ms
-    IDLE --> BEEP1: flanco de trigger_cerrar
-    BEEP1 --> SIL1: 100 ms
-    SIL1 --> BEEP2: 100 ms
-    BEEP2 --> SIL2: 100 ms
-    SIL2 --> BEEP3: 100 ms
-    BEEP3 --> IDLE: 100 ms
-```
+![Digrama_general](diagramas/controlador_buzzer.png)
 
 Ambos patrones duran exactamente 500 ms en total, pero con envolventes distintas (tono sostenido vs. tres pulsos cortos), distinguibles al oído sin generar frecuencias distintas.
 
@@ -332,18 +278,7 @@ function [7:0] bcd_lo_ascii(input [7:0] bcd); bcd_lo_ascii = {4'h3, bcd[3:0]}; e
 ```
 Truco estándar de conversión BCD→ASCII: cada nibble de un byte BCD (0–9) es también su dígito ASCII menos `0x30`, así que anteponer el nibble alto `0x3` mapea directamente a `'0'`–`'9'`.
  
-```mermaid
-stateDiagram-v2
-    [*] --> IDLE
-    IDLE --> READ: dump_trigger y count > 0
-    READ --> LOAD: entry_reg = mem[rd_ptr]
-    LOAD --> WAITHIGH: tx_start = 1
-    WAITHIGH --> WAITLOW: tx_busy = 1
-    WAITLOW --> LOAD: byte_idx < 27
-    WAITLOW --> NEXT: byte_idx == 27 (linea completa)
-    NEXT --> READ: quedan eventos
-    NEXT --> IDLE: no quedan eventos
-```
+![Digrama_general](diagramas/access_log.png)
  
 **Arbitraje escritura/lectura simultánea (verificado caso por caso):** la escritura de un nuevo evento (`event_time_valid`) y el consumo de una entrada por el volcado (`dump_read_en`) pueden coincidir en el mismo ciclo. El `case ({event_time_valid, dump_read_en})` cubre las 4 combinaciones correctamente, incluso bajo buffer lleno:
  
