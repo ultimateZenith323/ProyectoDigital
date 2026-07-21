@@ -77,9 +77,11 @@ Otros dos cambios de alcance quedan documentados por comparación entre el avanc
 4. **Interfaces de tipo comando/confirmación.** `i2c_master`, `uart_tx` y `lcd_hd44780.v` exponen el mismo contrato: el módulo superior activa una entrada de un ciclo (`cmd_*`, `tx_start`, `wr_cmd`/`wr_data`) y espera un pulso `done` o una bandera `busy` antes de emitir la siguiente orden.
 ### 4.2 Diagrama de bloques
  
-![Digrama_general](diagramas/Diagrama%20general.png)
-
-`*` Módulo referenciado en [security top](codigos/security_top.v)
+<p align="center">
+  <img src="diagramas/Diagrama%20general.png" alt="Diagrama general del sistema de control de acceso" width="520" />
+  <br>
+  <em>Diagrama general de la arquitectura del sistema FPGA.</em>
+</p>
  
 ### 4.3 Módulos principales
 
@@ -136,7 +138,11 @@ Escaneo de una matriz 4×4 activa en bajo (filas manejadas por la FPGA, columnas
  
 **Parámetro:** `DEBOUNCE_MS = 20` (por defecto en el módulo; el valor efectivamente instanciado depende de `keypad_lcd_controller.v`, no incluido).
  
-![Digrama_general](diagramas/keypad_scanner.png)
+<p align="center">
+  <img src="diagramas/keypad_scanner.png" alt="Diagrama del escaneo del teclado matricial" width="480" />
+  <br>
+  <em>Esquema del escaneo y antirrebote de la matriz de teclado.</em>
+</p>
  
 `SCAN` recorre las 4 filas una a la vez; al detectar una columna en bajo, congela la fila activa y pasa a `DEBOUNCE` sin seguir escaneando, hasta confirmar `key_valid` (un único pulso de un ciclo) y esperar la liberación, también antirrebotada. Esto garantiza **exactamente un `key_valid` por pulsación física**, sin importar cuánto tiempo se mantenga presionada la tecla.
 
@@ -164,7 +170,11 @@ init_rom[3] = 8'h06; // Entry Mode Set: incrementa cursor, sin shift de pantalla
  
 Tras completar la ROM, el módulo levanta `ready` y pasa a `S_IDLE`, donde atiende `wr_cmd`/`wr_data` bajo demanda con `busy` como bandera de ocupado — el mismo contrato comando/confirmación de `i2c_master` y `uart_tx`.
 
-![Digrama_general](diagramas/lcd.png)
+<p align="center">
+  <img src="diagramas/lcd.png" alt="Diagrama del controlador del display LCD" width="480" />
+  <br>
+  <em>Diagrama del controlador HD44780 para la pantalla LCD.</em>
+</p>
 
 Código del módulo: [lcd_hd44780](codigos/lcd.v)
  
@@ -176,7 +186,11 @@ Módulo Verilog `controlador_RTC`. Envuelve a `i2c_master.v` para (a) refrescar 
  
 **Parámetros relevantes en la instancia de `security_top.v`:** `I2C_FREQ_HZ = 100 000` · `POLL_PERIOD_MS = 500` (el valor por defecto del módulo es 200 ms; el sistema final usa 500 ms).
  
-![Digrama_general](diagramas/controlador_RTC.png)
+<p align="center">
+  <img src="diagramas/controlador_RTC.png" alt="Diagrama del controlador del reloj en tiempo real" width="480" />
+  <br>
+  <em>Flujo de lectura y registro de fecha y hora del RTC DS3231.</em>
+</p>
  
 **El mecanismo de snapshot es el punto más fino del módulo.** En vez de disparar una transacción I2C urgente exactamente cuando ocurre `access_event` (más latencia y complejidad), el evento se marca (`pending_event`, `pending_granted`) y se resuelve en la **siguiente lectura periódica que complete** — de hecho, `access_event` fuerza esa lectura a arrancar de inmediato en lugar de esperar el próximo `poll_tick`:
  
@@ -216,7 +230,11 @@ Fusiona el escaneo de teclado, el control de LCD y la comparación de contraseñ
 
 **Redibujo de pantalla (subrutina reutilizada).** Escribir las dos líneas del LCD cuesta 17 escrituras por línea (1 byte de posición de cursor + 16 caracteres), cada una a través del handshake genérico `S_ARM`/`S_WAIT_DONE` sobre `lcd_hd44780.v` (~2 ms por escritura). Un redibujo completo toma **≈68 ms**. Esta subrutina (`S_SET_L1 → S_SEND_MSG → S_SET_L2 → S_SEND_MSG`) se reutiliza desde cuatro puntos del código, cada uno fijando `after_redraw_state` antes de entrar: reposo tras arranque, cada dígito nuevo o borrado (`A`), el mensaje de resultado tras `*`, y el regreso al prompt tras el tiempo de espera.
 
-![Digrama_general](diagramas/keypad_lcd_controller.png)
+<p align="center">
+  <img src="diagramas/keypad_lcd_controller.png" alt="Diagrama del controlador de teclado y LCD" width="480" />
+  <br>
+  <em>Diagrama de la máquina de estados para ingreso de PIN y validación.</em>
+</p>
 
 **Validación de contraseña.** Al presionar `*`, `S_CHECK_PW` calcula `pw_match` combinacionalmente y, en el **mismo ciclo**, pulsa `access_event` y fija `access_granted = pw_match` — el evento llega a `ds3231_controller.v` (y de ahí a la cerradura y al buzzer) *antes* de que el LCD termine de dibujar "ACCESO OTORGADO"/"ACCESO DENEGADO" (~68 ms). El resultado permanece en pantalla `HOLD_CYCLES = CLK_FREQ_HZ × 3` ciclos (3 s exactos a 50 MHz) antes de limpiar `entry_count` y volver al prompt.
 
@@ -228,7 +246,11 @@ Fusiona el escaneo de teclado, el control de LCD y la comparación de contraseñ
  
 Replica en Verilog la lógica de apertura/cierre, con la convención de polaridad documentada explícitamente en el código como **confirmada sobre hardware real**: `RELE = 0` → cerradura cerrada (relé desactivado) · `RELE = 1` → cerradura abierta (relé activado, pasan los 12 V). Esta convención es consistente con una cerradura *fail-secure* cableada al contacto **normalmente abierto (NO)** del relé con las resistencias de pull-up de la FPGA activas: sin energizar el relé, el contacto NO permanece abierto y la cerradura no recibe los 12 V (permanece cerrada por defecto, incluso ante un corte de energía en la lógica de control).
  
-![Digrama_general](diagramas/lock_controller.png)
+<p align="center">
+  <img src="diagramas/lock_controller.png" alt="Diagrama del controlador de la cerradura" width="480" />
+  <br>
+  <em>Diagrama de la lógica de apertura, cierre y pausa de seguridad.</em>
+</p>
  
 **Parámetros (instanciados en `security_top.v` con los mismos valores por defecto del módulo):** `DEBOUNCE_MS = 50` · `CLOSE_HOLD_MS = 1000`.
  
@@ -327,8 +349,8 @@ Las pruebas se dividieron en subsistemas antes de la integración total:
 El prototipo final se encuentra ensamblado en un locker de MDF diseñado a medida. El panel frontal dispone el lector RFID, la pantalla LCD, los LEDs indicadores (rojo y verde), la puerta simulada con su cerradura de golpe, el circuito de potencia de 12V y la tarjeta FPGA. En la parte posterior se dispone de un espacio para guardar el contenido del locker.
 
 <p align="center">
-  <img src="imagenes/caja.jpg" alt="Vista frontal del prototipo ensamblado" width="380" />
-  <img src="imagenes/caja2.jpg" alt="Vista posterior del prototipo ensamblado" width="380" />
+  <img src="imagenes/caja.jpg" alt="Vista frontal del prototipo ensamblado" width="320" />
+  <img src="imagenes/caja2.jpg" alt="Vista posterior del prototipo ensamblado" width="320" />
 </p>
 
 <p align="center">
@@ -361,3 +383,4 @@ Además, se utilizó IA para la verificación y el comentario de los códigos di
 
 * [1] T. Floyd, *Fundamentos de sistemas digitales*, 9th ed. PEARSON EDUCATION, 2006[cite: 1].
 * [2] P. Ashenden, *DIGITAL DESIGN An Embedded Systems Approach Using VERILOG*. MORGAN KAUFMANN PUBLISHERS, 2008[cite: 1].
+* Tom Urkin. *I2C Master/Slave implementation in Verilog*. GitHub repository. Disponible en: https://github.com/tom-urkin/I2C
