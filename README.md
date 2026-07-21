@@ -2,15 +2,15 @@
 
 ## Índice
 
-1. [Introducción](https://www.google.com/search?q=%231-introducci%C3%B3n)
-2. [Impacto de la solución](https://www.google.com/search?q=%232-impacto-de-la-soluci%C3%B3n)
-3. [Cumplimiento de los objetivos](https://www.google.com/search?q=%233-cumplimiento-de-los-objetivos)
-4. [Arquitectura implementada](https://www.google.com/search?q=%234-arquitectura-implementada)
-5. [Funcionamiento y pruebas](https://www.google.com/search?q=%235-funcionamiento-y-pruebas)
-6. [Presentación física del proyecto](https://www.google.com/search?q=%236-presentaci%C3%B3n-f%C3%ADsica-del-proyecto)
-7. [Reporte de uso de IA](https://www.google.com/search?q=%238-reporte-de-uso-de-ia)
-8. [Conclusiones](https://www.google.com/search?q=%239-conclusiones)
-9.  [Bibliografía](https://www.google.com/search?q=%2310-bibliograf%C3%ADa)
+1. [Introducción](#1-introducción)
+2. [Impacto de la solución](#2-impacto-de-la-solución)
+3. [Objetivos](#3-objetivos)
+4. [Arquitectura implementada](#4-arquitectura-implementada)
+5. [Funcionamiento y pruebas](#5-funcionamiento-y-pruebas)
+6. [Presentación física del proyecto](#6-presentación-física-del-proyecto)
+7. [Reporte de uso de IA](#7-reporte-de-uso-de-ia)
+8. [Conclusiones](#8-conclusiones)
+9. [Bibliografía](#9-bibliografía)
 
 ---
 
@@ -64,9 +64,9 @@ Esta descomposición es, en general, más robusta que una FSM monolítica: cada 
 Otros dos cambios de alcance quedan documentados por comparación entre el avance y el código final:
  
 - El requisito original de registrar **el ID de la tarjeta** en cada evento no tiene equivalente en la versión final: `access_log.v` guarda únicamente fecha/hora y tipo de evento, no una identidad, porque la contraseña compartida por teclado no distingue usuarios individuales.
-- El esquema previo de **tres eventos separados** (lectura de tarjeta, acceso otorgado, acceso denegado, con el candado abriendo solo si "lectura de tarjeta Y acceso otorgado" ocurrían juntos) se simplificó a **dos señales** (`kp_access_event` + `kp_access_granted`), consistente con que una contraseña se valida en un único paso, sin una fase de "presencia" independiente de la de "validación".
+- El esquema previo de **tres eventos separados** (lectura de tarjeta, acceso otorgado, acceso denegado, con el candado abriendo solo si "lectura de tarjeta y acceso otorgado" ocurrían juntos) se simplificó a **dos señales** (`kp_access_event` + `kp_access_granted`), consistente con que una contraseña se valida en un único paso, sin una fase de "presencia" independiente de la de "validación".
   
-  Código del modulo access_log: [access_log](codigos/acces_log.v)
+  Código del módulo: [access_log](codigos/acces_log.v)
 
 
 **Patrones de diseño consistentes en todo el código:**
@@ -264,7 +264,7 @@ Fusiona el escaneo de teclado, el control de LCD y la comparación de contraseñ
 | 0–9, B–D | — | Se agregan al intento si `entry_count < PASSWORD_LEN`; si ya hay 4 dígitos, se ignoran hasta borrar con `A` |
 
 
-**Redibujo de pantalla (subrutina reutilizada).** Escribir las dos líneas del LCD cuesta 17 escrituras por línea (1 byte de posición de cursor + 16 caracteres), cada una vía el handshake genérico `S_ARM`/`S_WAIT_DONE` sobre `lcd_hd44780.v` (~2 ms por escritura). Un redibujo completo toma **≈68 ms**. Esta subrutina (`S_SET_L1 → S_SEND_MSG → S_SET_L2 → S_SEND_MSG`) se reutiliza desde cuatro puntos del código, cada uno fijando `after_redraw_state` antes de entrar: reposo tras arranque, cada dígito nuevo o borrado (`A`), el mensaje de resultado tras `*`, y el regreso al prompt tras el tiempo de espera..
+**Redibujo de pantalla (subrutina reutilizada).** Escribir las dos líneas del LCD cuesta 17 escrituras por línea (1 byte de posición de cursor + 16 caracteres), cada una a través del handshake genérico `S_ARM`/`S_WAIT_DONE` sobre `lcd_hd44780.v` (~2 ms por escritura). Un redibujo completo toma **≈68 ms**. Esta subrutina (`S_SET_L1 → S_SEND_MSG → S_SET_L2 → S_SEND_MSG`) se reutiliza desde cuatro puntos del código, cada uno fijando `after_redraw_state` antes de entrar: reposo tras arranque, cada dígito nuevo o borrado (`A`), el mensaje de resultado tras `*`, y el regreso al prompt tras el tiempo de espera.
 
 ```mermaid
 stateDiagram-v2
@@ -396,7 +396,7 @@ Cuando `count == DEPTH` y ocurre `2'b11`, la escritura sobreescribe exactamente 
 
 Código del módulo: [acces_log](codigos/acces_log.v)
  
-### 3.12 `security_top.v` — Integración del sistema
+### 4.4 `security_top.v` — Integración del sistema
  
 Módulo top que instancia y conecta todos los anteriores. Puntos de integración relevantes:
  
@@ -423,31 +423,40 @@ Las pruebas se dividieron en subsistemas antes de la integración total:
 
 ## 6. Presentación física del proyecto
 
-El prototipo final se encuentra ensamblado en un locker de MDF diseñado a medida. El panel frontal dispone el lector RFID, la pantalla LCD, los LEDs indicadores (rojo y verde), la puerta simulada con su cerradura de golpe, el circuito de potencia de 12V y la tarjeta FPGA. En la parte posterior hay un espacio para guardar el contenido del locker.
+El prototipo final se encuentra ensamblado en un locker de MDF diseñado a medida. El panel frontal dispone el lector RFID, la pantalla LCD, los LEDs indicadores (rojo y verde), la puerta simulada con su cerradura de golpe, el circuito de potencia de 12V y la tarjeta FPGA. En la parte posterior se dispone de un espacio para guardar el contenido del locker.
+
+<p align="center">
+  <img src="imagenes/caja.jpg" alt="Vista frontal del prototipo ensamblado" width="380" />
+  <img src="imagenes/caja2.jpg" alt="Vista posterior del prototipo ensamblado" width="380" />
+</p>
+
+<p align="center">
+  <em>Vista frontal y posterior del prototipo final del sistema de control de acceso.</em>
+</p>
 
 ---
 
-## 8. Reporte de uso de IA
+## 7. Reporte de uso de IA
 
 Para la realización de este proyecto, se emplearon herramientas de Inteligencia Artificial (ej. ChatGPT/Claude) de forma acotada y estrictamente como asistencia técnica en las siguientes tareas:
 
-* **Generación de rutinas repetitivas:** Creación de las funciones de conversión de BCD a ASCII en Verilog.
-* **Estructuración documental:** Corrección de estilo y formato Markdown para este informe final en el repositorio de GitHub.
-* **Aclaración de protocolos:** Consultas teóricas rápidas sobre la máquina de estados interna del chip NXP RC522 para la temporización del bus SPI.
+* **Generación de rutinas repetitivas:** creación de las funciones de conversión de BCD a ASCII en Verilog.
+* **Estructuración documental:** corrección de estilo y formato Markdown para este informe final en el repositorio de GitHub.
+* **Aclaración de protocolos:** consultas teóricas rápidas sobre la máquina de estados interna del chip NXP RC522 para la temporización del bus SPI.
 
-* Se usa IA además para hacer verificación y comentariado de los códigos diseñados en cada módulo.
+Además, se utilizó IA para la verificación y el comentario de los códigos diseñados en cada módulo.
 
 ---
 
-## 9. Conclusiones
+## 8. Conclusiones
 
 * La separación en módulos síncronos independientes (I2C, UART, SPI) controlados por una FSM supervisora garantizó que no hubiese cuellos de botella al leer la tarjeta, consultar el reloj y actualizar la pantalla simultáneamente.
-* El manejo correcto de líneas inout en Verilog (como en el pin SDA del I2C) y el entendimiento de los tiempos de setup/hold a nivel de osciloscopio fueron determinantes para estabilizar la comunicación con los periféricos.
+* El manejo correcto de líneas `inout` en Verilog (como en el pin SDA del I2C) y el entendimiento de los tiempos de setup/hold a nivel de osciloscopio fueron determinantes para estabilizar la comunicación con los periféricos.
 * Se cumplió con la meta de migrar de un sistema básico de teclado a un sistema IoT/RFID, agregando trazabilidad mediante memoria circular y transmisión asíncrona (UART), demostrando un dominio sólido de los sistemas digitales en hardware.
 
 ---
 
-## 10. Bibliografía
+## 9. Bibliografía
 
 * [1] T. Floyd, *Fundamentos de sistemas digitales*, 9th ed. PEARSON EDUCATION, 2006[cite: 1].
 * [2] P. Ashenden, *DIGITAL DESIGN An Embedded Systems Approach Using VERILOG*. MORGAN KAUFMANN PUBLISHERS, 2008[cite: 1].
