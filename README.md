@@ -77,42 +77,8 @@ Otros dos cambios de alcance quedan documentados por comparación entre el avanc
 4. **Interfaces de tipo comando/confirmación.** `i2c_master`, `uart_tx` y `lcd_hd44780.v` exponen el mismo contrato: el módulo superior activa una entrada de un ciclo (`cmd_*`, `tx_start`, `wr_cmd`/`wr_data`) y espera un pulso `done` o una bandera `busy` antes de emitir la siguiente orden.
 ### 4.2 Diagrama de bloques
  
-```mermaid
-flowchart LR
-    TECLADO["Teclado matricial 4x4"] --> KLC
-    DS3231CHIP["DS3231 (RTC)"] <--> I2CM
-    KEYSET["KEY_SET_TIME"] --> RTCC
-    KEYCLOSE["KEY_CLOSE"] --> LOCKC
- 
-    subgraph FPGA["FPGA Cyclone IV - security_top.v"]
-        direction TB
-        I2CM["i2c_master.v"]
-        RTCC["ds3231_controller.v"]
-        KLC["keypad_lcd_controller.v *"]
-        LOCKC["lock_controller.v"]
-        BUZZC["controlador_buzzer.v *"]
-        LOGM["access_log.v"]
-        UTX["uart_tx.v"]
- 
-        RTCC --> I2CM
-        I2CM --> RTCC
-        KLC -->|access_event, access_granted| RTCC
-        RTCC -->|hour_bcd, min_bcd, rtc_data_valid| KLC
-        RTCC -->|event_time_valid, event_granted| LOCKC
-        RTCC -->|snapshot del evento| LOGM
-        KLC -->|close_trigger| LOCKC
-        LOCKC -->|lock_open_trigger / lock_error_trigger| BUZZC
-        LOGM --> UTX
-    end
- 
-    KLC --> LCD["LCD 16x2 HD44780"]
-    LOCKC --> RELE["Rele + Cerradura 12V"]
-    BUZZC --> BUZZER["Buzzer"]
-    UTX --> HC05["Modulo HC-05"]
- 
-    style KLC stroke-dasharray: 5 5
-    style BUZZC stroke-dasharray: 5 5
-```
+![Digrama_general](diagramas/Diagrama%20general.png)
+
 `*` Módulo referenciado en [security top](codigos/security_top.v)
  
 ### 4.3 Módulos principales
