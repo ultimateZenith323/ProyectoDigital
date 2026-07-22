@@ -1,5 +1,10 @@
 # Informe Final: Sistema de Control de Acceso con RFID sobre FPGA
 
+## Integrantes
+**Juliana Zúñiga Cruz - 1032800049**
+**Karen Gissell Buitrago Osorio - 1077112461**
+**Nicolas Ramírez Gonzalez -  1023371323**
+
 ## Índice
 
 1. [Introducción](#1-introducción)
