@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel de Control - Casillero FPGA</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #0d1117;
+            color: #c9d1d9;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            margin: 0;
+        }
+
+        h1 { margin-bottom: 5px; color: #58a6ff; text-align: center; }
+        .subtitle { color: #8b949e; margin-bottom: 20px; text-align: center; }
+
+        button {
+            background-color: #238636;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-bottom: 25px;
+            transition: 0.2s;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        button:hover { background-color: #2ea043; transform: translateY(-1px); }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 15px;
+            width: 100%;
+            max-width: 500px;
+            margin-bottom: 25px;
+        }
+
+        /* Indicador dinámico del casillero */
+        .status-card {
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 1.1rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: all 0.4s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+        }
+        
+        /* Estados del aviso dinámico */
+        .status-closed {
+            background-color: #1f2937;
+            border: 2px solid #374151;
+            color: #9ca3af;
+        }
+        .status-open {
+            background-color: rgba(46, 204, 113, 0.15);
+            border: 2px solid #2ecc71;
+            color: #2ecc71;
+            box-shadow: 0 0 20px rgba(46, 204, 113, 0.3);
+        }
+        .status-denied {
+            background-color: rgba(231, 76, 60, 0.15);
+            border: 2px solid #e74c3c;
+            color: #e74c3c;
+            box-shadow: 0 0 20px rgba(231, 76, 60, 0.3);
+        }
+
+        /* Tarjetas de ÚLTIMO ACCESO */
+        .info-card {
+            background-color: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 10px;
+            padding: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .info-card label { font-size: 0.9rem; color: #8b949e; }
+        .info-card span { font-size: 1.1rem; font-weight: bold; font-family: monospace; }
+        
+        .val-granted { color: #2ecc71; }
+        .val-denied { color: #e74c3c; }
+
+        /* Historial */
+        .history-box {
+            width: 100%;
+            max-width: 500px;
+            background-color: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 10px;
+            padding: 15px;
+        }
+        .history-box h3 { margin-top: 0; color: #8b949e; font-size: 0.9rem; }
+        .log-list {
+            max-height: 150px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 0.85rem;
+        }
+        .log-item {
+            padding: 6px 0;
+            border-bottom: 1px solid #21262d;
+            color: #8b949e;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Casillero Inteligente</h1>
+    <p class="subtitle">Monitoreo FPGA en Tiempo Real</p>
+
+    <button id="btnConnect">🔌 Conectar Bluetooth</button>
+
+    <div class="dashboard-grid">
+        <!-- Aviso dinámico tipo botón/indicador -->
+        <div id="statusBox" class="status-card status-closed">
+            🔒 El casillero se encuentra cerrado
+        </div>
+
+        <!-- Último Acceso Otorgado -->
+        <div class="info-card">
+            <label>Último acceso otorgado:</label>
+            <span id="lastGranted" class="val-granted">--:--:--</span>
+        </div>
+
+        <!-- Último Acceso Denegado -->
+        <div class="info-card">
+            <label>Último acceso denegado:</label>
+            <span id="lastDenied" class="val-denied">--:--:--</span>
+        </div>
+    </div>
+
+    <!-- Registro/Historial rápido -->
+    <div class="history-box">
+        <h3>HISTORIAL DE EVENTOS</h3>
+        <div class="log-list" id="logList">
+            <div style="color: #484f58;">Esperando recepción de datos...</div>
+        </div>
+    </div>
+
+    <script>
+        let port;
+        let reader;
+
+        document.getElementById('btnConnect').addEventListener('click', async () => {
+            try {
+                port = await navigator.serial.requestPort();
+                await port.open({ baudRate: 9600 });
+
+                document.getElementById('btnConnect').innerText = "✓ Conectado";
+                document.getElementById('btnConnect').style.backgroundColor = "#1f6feb";
+
+                const textDecoder = new TextDecoderStream();
+                port.readable.pipeTo(textDecoder.writable);
+                reader = textDecoder.readable.getReader();
+
+                let buffer = "";
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+
+                    buffer += value;
+                    let lines = buffer.split('\n');
+                    buffer = lines.pop(); 
+
+                    for (let line of lines) {
+                        if (line.trim().length > 0) {
+                            processData(line.trim());
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error("Error:", error);
+                alert("Error de conexión: " + error.message);
+            }
+        });
+
+        function processData(text) {
+            const statusBox = document.getElementById('statusBox');
+            const lastGranted = document.getElementById('lastGranted');
+            const lastDenied = document.getElementById('lastDenied');
+            const logList = document.getElementById('logList');
+
+            const lowerText = text.toLowerCase();
+            
+            const timeMatch = text.match(/\d{2}:\d{2}(:\d{2})?/);
+            const timeStr = timeMatch ? timeMatch[0] : new Date().toLocaleTimeString();
+
+            // 1. Detectar si fue OTORGADO (Abrir)
+            if (lowerText.includes('granted') || lowerText.includes('otorgado') || lowerText.includes('ok')) {
+                statusBox.className = "status-card status-open";
+                statusBox.innerHTML = "🔓 El casillero se encuentra abierto";
+                lastGranted.innerText = timeStr;
+                // SIN setTimeout: Se mantendrá abierto en la pantalla indefinidamente.
+
+            // 2. Detectar evento de CIERRE (Botón de cierre presionado)
+            } else if (lowerText.includes('cerrado') || lowerText.includes('cierre') || lowerText.includes('closed')) {
+                statusBox.className = "status-card status-closed";
+                statusBox.innerHTML = "🔒 El casillero se encuentra cerrado";
+
+            // 3. Detectar si fue DENEGADO
+            } else if (lowerText.includes('denied') || lowerText.includes('denegado') || lowerText.includes('error')) {
+                statusBox.className = "status-card status-denied";
+                statusBox.innerHTML = "⚠️ ¡Intento de acceso denegado!";
+                lastDenied.innerText = timeStr;
+
+                setTimeout(() => {
+                    statusBox.className = "status-card status-closed";
+                    statusBox.innerHTML = "🔒 El casillero se encuentra cerrado";
+                }, 2500);
+            }
+
+            // Agregar al historial de la interfaz
+            const item = document.createElement('div');
+            item.className = 'log-item';
+            item.innerText = `> ${text}`;
+            logList.insertBefore(item, logList.firstChild);
+        }
+    </script>
+</body>
+</html>

@@ -69,14 +69,14 @@ Otros dos cambios de alcance quedan documentados por comparación entre el avanc
   Código del módulo: [access_log](codigos/acces_log.v)
 
 
-**Patrones de diseño consistentes en todo el código:**
+#### 4.1.2 Patrones de diseño consistentes en todo el código
  
 1. **Valor por defecto + sobre-escritura condicional.** Casi todas las señales de pulso (`done`, `tx_start_reg`, `dump_read_en`, `cmd_start`, `rtc_data_valid`, `event_time_valid`) se reinician a `0` al inicio de cada ciclo de reloj y solo se reafirman condicionalmente dentro del `case` de la FSM. Esto evita latches inferidos y garantiza pulsos de exactamente un ciclo. `lock_controller.v` usa la misma técnica para `RELE`: lo asigna en `1` al entrar a `S_OPEN` y luego lo sobre-escribe a `0` condicionalmente más abajo en el mismo bloque — la asignación no bloqueante que ejecuta último en orden de programa es la que prevalece.
 2. **Sincronización de entradas asíncronas.** Toda señal externa que entra a un dominio síncrono (columnas del teclado, `KEY_CLOSE`, `KEY_SET_TIME`) pasa por al menos un doble flip-flop antes de usarse en lógica de decisión, mitigando metaestabilidad.
 3. **Antirrebote en milisegundos, no en ciclos fijos.** `keypad_scanner.v` y `lock_controller.v` basan su antirrebote en un contador de ticks de 1 ms derivado de `CLK_FREQ_HZ`, de modo que el tiempo de rebote (ms) es independiente de la frecuencia de reloj usada.
 4. **Interfaces de tipo comando/confirmación.** `i2c_master`, `uart_tx` y `lcd_hd44780.v` exponen el mismo contrato: el módulo superior activa una entrada de un ciclo (`cmd_*`, `tx_start`, `wr_cmd`/`wr_data`) y espera un pulso `done` o una bandera `busy` antes de emitir la siguiente orden.
 
-#### 4.1.1. Problema en la implementación de RFID
+#### 4.1.1 Limitaciones de la implementación de RFID
 
 El desarrollo se organizó en múltiples módulos. Se implementaron registros de desplazamiento para la comunicación SPI (RDE y RDS), un divisor de frecuencia, y una jerarquía de FSMs que cubrían desde la inicialización del dispositivo hasta la detección y verificación de tarjetas. Entre los logros alcanzados se encuentran la comunicación SPI funcional con el MFRC522, la verificación exitosa del registro de versión del chip (0x92), y la ejecución correcta del autotest interno del dispositivo, cuyos 64 bytes de resultado coincidieron con la tabla de referencia oficial para la versión 2.0 del chip.
 
@@ -95,21 +95,21 @@ La prueba del intento esta en el grupo de codigos encontrados en "**codigos_anti
 Aquí algunas de las maquinas de estado realizadas:
 
 <p align="center">
-  <img src="diagramas/FSM_antiguos/FSMS(masterSPI).jpeg" alt="Maquina de control de SPI" width="520" />
+  <img src="diagramas/FSM_antiguos/FSMS(masterSPI).jpeg" alt="Máquina de estados del módulo SPI para el lector RFID" width="360" />
   <br>
-  <em>Maquina de control de SPI.</em>
+  <em>Máquina de estados del módulo SPI usado para la comunicación con el lector RFID.</em>
 </p>
 
 <p align="center">
-  <img src="diagramas/FSM_antiguos/FSMTR.jpeg" alt="Maquina de envio de tarjetas" width="520" />
+  <img src="diagramas/FSM_antiguos/FSMTR.jpeg" alt="Máquina de estados para el envío y recepción de datos de tarjetas" width="360" />
   <br>
-  <em>Control de intercomunicación de tarjetas.</em>
+  <em>Máquina de estados propuesta para la interacción con las tarjetas RFID.</em>
 </p>
 
 <p align="center">
-  <img src="diagramas/FSM_antiguos/FSMP.jpeg" alt="Maquina principal" width="520" />
+  <img src="diagramas/FSM_antiguos/FSMP.jpeg" alt="Máquina de estados principal del sistema RFID" width="360" />
   <br>
-  <em>Maquina principal.</em>
+  <em>Máquina de estados principal del intento de implementación del lector RFID.</em>
 </p>
 
 Aunque la laectura de tarjetas no fue exitosa, aun así se pudieron realizar procesos como el autotest y algunas configuraciones internas de la RFID.
@@ -117,7 +117,7 @@ Aunque la laectura de tarjetas no fue exitosa, aun así se pudieron realizar pro
 ### 4.2 Diagrama de bloques
  
 <p align="center">
-  <img src="diagramas/Diagrama%20general.png" alt="Diagrama general del sistema de control de acceso" width="440" />
+  <img src="diagramas/Diagrama%20general.png" alt="Diagrama general del sistema de control de acceso" width="400" />
   <br>
   <em>Diagrama general de la arquitectura del sistema FPGA.</em>
 </p>
@@ -365,7 +365,64 @@ Cuando `count == DEPTH` y ocurre `2'b11`, la escritura sobreescribe exactamente 
 `dump_remaining` se fija como una copia de `count` al aceptar `dump_trigger` (`D_IDLE → D_READ`); eventos que lleguen **durante** un volcado en curso no se incluyen en ese ciclo de transmisión, sino que quedan en el buffer para el siguiente disparo automático (cada `DUMP_PERIOD_S = 5 s`, definido en `security_top.v`).
 
 Código del módulo: [acces_log](codigos/acces_log.v)
- 
+
+### 4.3.10 Visualización de datos por Bluetooth
+
+Esta capa añade una salida de supervisión remota al sistema. Los eventos generados por la bitácora circular no solo se almacenan internamente, sino que también se transmiten en formato ASCII a través del módulo UART y del módulo Bluetooth HC-05, permitiendo que un dispositivo externo visualice el historial de accesos en tiempo real.
+
+#### 4.3.10.1 Flujo de transmisión de datos
+
+1. El módulo `access_log.v` arma cada evento como una línea de texto con hora, fecha y tipo de evento.
+2. La información se serializa mediante `uart_tx.v` a 9600 baudios.
+3. El módulo Bluetooth HC-05 reenvía esos datos de forma inalámbrica a un receptor externo.
+4. La aplicación receptora interpreta la trama y la muestra como una lista cronológica de eventos.
+
+Un ejemplo de salida esperada es:
+
+```text
+14:32:11 21/07/26 OTORGADO
+14:33:05 21/07/26 DENEGADO
+14:35:02 21/07/26 CERRADO
+```
+
+#### 4.3.10.2 Monitoreo Bluetooth mediante página web
+
+Esta página web implementa un panel de monitoreo que se conecta al hardware mediante la **Web Serial API** y muestra el estado del sistema en tiempo real.
+
+**Componentes principales:**
+- **Interfaz gráfica:** utiliza un diseño oscuro y contrastante con colores de estado para distinguir acceso otorgado, denegado y cerrado.
+- **Conexión serial:** solicita al usuario seleccionar el puerto COM o Bluetooth y lo abre a 9600 baudios.
+- **Procesamiento de eventos:** interpreta líneas de texto entrantes y actualiza el tablero con el estado y el historial de eventos.
+
+<p align="center">
+  <img src="imagenes/pagweb.jpeg" alt="Interfaz web de monitoreo Bluetooth" width="300" />
+  <br>
+  <em>Interfaz web para monitoreo y registro de eventos por Bluetooth.</em>
+</p>
+
+El código fuente de la página está disponible en [pag web](codigos/code_pagweb.html).
+
+#### 4.3.10.3 Monitoreo Bluetooth con App Inventor
+
+La aplicación móvil desarrollada en **MIT App Inventor** gestiona la conexión inalámbrica, recibe las tramas enviadas por el sistema y despliega un historial de eventos en la interfaz de usuario.
+
+**Flujo de la aplicación:**
+1. **Inicialización y selección de dispositivo:** obtiene los módulos Bluetooth vinculados y permite seleccionar uno para conectar.
+2. **Conexión y habilitación de servicios:** activa la sesión de comunicación y habilita el temporizador de lectura.
+3. **Recepción, decodificación y despliegue de datos:** lee los datos entrantes, los separa por líneas y actualiza la lista de eventos en tiempo real.
+
+<p align="center">
+  <img src="imagenes/appprogra.jpeg" alt="Código de la aplicación móvil en App Inventor" width="300" />
+  <br>
+  <em>Código de la aplicación móvil para la recepción y visualización de datos por Bluetooth.</em>
+</p>
+
+<p align="center">
+  <img src="imagenes/appcel.jpeg" alt="Interfaz de la aplicación móvil para monitoreo Bluetooth" width="260" />
+  <br>
+  <em>Vista de la interfaz móvil donde se muestran los eventos recibidos.</em>
+</p>
+
 ### 4.4 `security_top.v` — Integración del sistema
  
 Módulo top que instancia y conecta todos los anteriores. Puntos de integración relevantes:
